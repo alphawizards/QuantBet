@@ -1,0 +1,2 @@
+# QuantBet
+Sports bet modelling
