@@ -44,8 +44,8 @@ export function Dashboard() {
             const [bt, strat, cal, mod, rank] = await Promise.all([
                 getBacktestForModel(modelId),
                 getStrategyComparison(modelId),
-                getCalibrationData(),
-                getModelComparison(),
+                getCalibrationData(modelId),
+                getModelComparison(modelId),
                 getEloRankings(),
             ]);
             setBacktest(bt);

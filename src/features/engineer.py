@@ -621,6 +621,319 @@ class NBLFeatureEngineer:
         }
     
     # ========================================================================
+    # Rest Days Features
+    # ========================================================================
+    
+    def get_rest_days(
+        self,
+        team_code: str,
+        game_date: datetime,
+        schedule: pd.DataFrame
+    ) -> int:
+        """
+        Calculate days of rest since team's last game.
+        
+        Rest is a critical factor in basketball performance:
+        - Back-to-back (0-1 days): Significant fatigue
+        - Normal rest (2-3 days): Standard
+        - Extended rest (4+ days): Well-rested, possible rust
+        
+        Args:
+            team_code: Team identifier
+            game_date: Date of upcoming game
+            schedule: DataFrame with game schedule
+        
+        Returns:
+            Days since last game (999 if no previous game found)
+        """
+        team_games = schedule[
+            ((schedule['home_team'] == team_code) |
+             (schedule['away_team'] == team_code)) &
+            (schedule['game_date'] < game_date)
+        ].sort_values('game_date', ascending=False)
+        
+        if team_games.empty:
+            return 999  # No previous game, treat as well-rested
+        
+        last_game_date = team_games.iloc[0]['game_date']
+        
+        # Handle both datetime and date objects
+        if hasattr(last_game_date, 'date'):
+            last_date = last_game_date.date()
+        else:
+            last_date = last_game_date
+            
+        if hasattr(game_date, 'date'):
+            current_date = game_date.date()
+        else:
+            current_date = game_date
+        
+        return (current_date - last_date).days
+    
+    def calculate_rest_advantage(
+        self,
+        home_rest: int,
+        away_rest: int
+    ) -> Dict[str, float]:
+        """
+        Calculate rest-related features from rest days.
+        
+        Args:
+            home_rest: Days rest for home team
+            away_rest: Days rest for away team
+        
+        Returns:
+            Dictionary with rest features:
+                - rest_diff: home_rest - away_rest
+                - home_b2b: 1 if home team on back-to-back
+                - away_b2b: 1 if away team on back-to-back
+                - rest_advantage_category: -1/0/1 for disadvantage/neutral/advantage
+        """
+        rest_diff = home_rest - away_rest
+        
+        # Categorize rest advantage
+        if rest_diff >= 2:
+            rest_category = 1  # Home team rested advantage
+        elif rest_diff <= -2:
+            rest_category = -1  # Away team rested advantage
+        else:
+            rest_category = 0  # Neutral
+        
+        return {
+            'rest_diff': float(rest_diff),
+            'home_b2b': float(home_rest <= 1),
+            'away_b2b': float(away_rest <= 1),
+            'rest_advantage_category': float(rest_category)
+        }
+    
+    # ========================================================================
+    # Injury Impact Features
+    # ========================================================================
+    
+    def calculate_injury_impact(
+        self,
+        team_code: str,
+        game_date: datetime,
+        injury_data: Optional[pd.DataFrame],
+        historical_data: pd.DataFrame
+    ) -> Dict[str, float]:
+        """
+        Calculate expected performance impact from injuries/absences.
+        
+        Uses player minutes and efficiency to estimate impact when 
+        key players are unavailable.
+        
+        Args:
+            team_code: Team identifier
+            game_date: Date of the game
+            injury_data: DataFrame with columns:
+                - player_id: Player identifier
+                - team: Team code
+                - status: 'out', 'doubtful', 'questionable', 'probable'
+                - avg_minutes: Season average minutes per game
+                - efficiency: Player efficiency rating (optional)
+            historical_data: For calculating team averages
+        
+        Returns:
+            Dictionary with:
+                - injury_impact_score: 0-1 scale (0 = no impact, 1 = critical)
+                - players_out: Number of players listed as out
+                - minutes_lost: Expected minutes lost
+                - key_players_out: Number of starters/key rotation players out
+        """
+        if injury_data is None or injury_data.empty:
+            return {
+                'injury_impact_score': 0.0,
+                'players_out': 0,
+                'minutes_lost': 0.0,
+                'key_players_out': 0
+            }
+        
+        # Filter to team's injured/questionable players for this game
+        team_injuries = injury_data[
+            (injury_data['team'] == team_code)
+        ]
+        
+        if team_injuries.empty:
+            return {
+                'injury_impact_score': 0.0,
+                'players_out': 0,
+                'minutes_lost': 0.0,
+                'key_players_out': 0
+            }
+        
+        # Weight by status
+        status_weights = {
+            'out': 1.0,
+            'doubtful': 0.75,
+            'questionable': 0.5,
+            'probable': 0.1,
+            'available': 0.0
+        }
+        
+        total_minutes_lost = 0.0
+        weighted_efficiency_lost = 0.0
+        players_out = 0
+        key_players_out = 0  # Players with 20+ min/game
+        
+        for _, player in team_injuries.iterrows():
+            status = player.get('status', 'questionable').lower()
+            weight = status_weights.get(status, 0.5)
+            
+            avg_minutes = player.get('avg_minutes', 15.0)
+            efficiency = player.get('efficiency', 10.0)
+            
+            minutes_impact = avg_minutes * weight
+            total_minutes_lost += minutes_impact
+            weighted_efficiency_lost += efficiency * weight
+            
+            if weight >= 0.75:  # Doubtful or out
+                players_out += 1
+                if avg_minutes >= 20:
+                    key_players_out += 1
+        
+        # Normalize impact score (max ~240 total minutes in a game)
+        # Key players (20+ min) count more
+        impact_score = min(1.0, (total_minutes_lost / 100.0) + (key_players_out * 0.15))
+        
+        return {
+            'injury_impact_score': round(impact_score, 3),
+            'players_out': players_out,
+            'minutes_lost': round(total_minutes_lost, 1),
+            'key_players_out': key_players_out
+        }
+    
+    # ========================================================================
+    # Streak and Momentum Features
+    # ========================================================================
+    
+    def get_win_streak(
+        self,
+        team_code: str,
+        game_date: datetime,
+        historical_data: pd.DataFrame,
+        max_lookback: int = 10
+    ) -> int:
+        """
+        Calculate current win/loss streak.
+        
+        Positive values indicate consecutive wins, negative indicate losses.
+        Streak momentum can be a psychological factor in game outcomes.
+        
+        Args:
+            team_code: Team identifier
+            game_date: Date of upcoming game
+            historical_data: Historical game results
+            max_lookback: Maximum games to look back
+        
+        Returns:
+            Current streak (positive = wins, negative = losses)
+            0 if mixed recent results
+        """
+        team_games = historical_data[
+            ((historical_data['home_team'] == team_code) |
+             (historical_data['away_team'] == team_code)) &
+            (historical_data['game_date'] < game_date)
+        ].sort_values('game_date', ascending=False).head(max_lookback)
+        
+        if team_games.empty:
+            return 0
+        
+        streak = 0
+        streak_type = None  # 'W' or 'L'
+        
+        for _, game in team_games.iterrows():
+            # Determine if team won
+            if game['home_team'] == team_code:
+                won = game['home_score'] > game['away_score']
+            else:
+                won = game['away_score'] > game['home_score']
+            
+            current_result = 'W' if won else 'L'
+            
+            if streak_type is None:
+                streak_type = current_result
+                streak = 1 if won else -1
+            elif current_result == streak_type:
+                streak += 1 if won else -1
+            else:
+                break  # Streak ended
+        
+        return streak
+    
+    def get_recent_form(
+        self,
+        team_code: str,
+        game_date: datetime,
+        historical_data: pd.DataFrame,
+        n_games: int = 5,
+        home_away_filter: Optional[str] = None
+    ) -> Dict[str, float]:
+        """
+        Calculate recent form metrics over last N games.
+        
+        Args:
+            team_code: Team identifier
+            game_date: Date of upcoming game
+            historical_data: Historical game results
+            n_games: Number of games to consider
+            home_away_filter: 'home', 'away', or None for all games
+        
+        Returns:
+            Dictionary with:
+                - win_pct: Win percentage in window
+                - avg_margin: Average scoring margin
+                - games_played: Actual games in window
+        """
+        # Filter to team's games
+        if home_away_filter == 'home':
+            team_games = historical_data[
+                (historical_data['home_team'] == team_code) &
+                (historical_data['game_date'] < game_date)
+            ]
+        elif home_away_filter == 'away':
+            team_games = historical_data[
+                (historical_data['away_team'] == team_code) &
+                (historical_data['game_date'] < game_date)
+            ]
+        else:
+            team_games = historical_data[
+                ((historical_data['home_team'] == team_code) |
+                 (historical_data['away_team'] == team_code)) &
+                (historical_data['game_date'] < game_date)
+            ]
+        
+        team_games = team_games.sort_values('game_date', ascending=False).head(n_games)
+        
+        if team_games.empty:
+            return {
+                'win_pct': 0.5,  # Default to 50%
+                'avg_margin': 0.0,
+                'games_played': 0
+            }
+        
+        wins = 0
+        total_margin = 0.0
+        
+        for _, game in team_games.iterrows():
+            if game['home_team'] == team_code:
+                margin = game['home_score'] - game['away_score']
+            else:
+                margin = game['away_score'] - game['home_score']
+            
+            total_margin += margin
+            if margin > 0:
+                wins += 1
+        
+        games_played = len(team_games)
+        
+        return {
+            'win_pct': round(wins / games_played, 3) if games_played > 0 else 0.5,
+            'avg_margin': round(total_margin / games_played, 1) if games_played > 0 else 0.0,
+            'games_played': games_played
+        }
+    
+    # ========================================================================
     # Combined Feature Generator
     # ========================================================================
     
@@ -766,6 +1079,52 @@ class NBLFeatureEngineer:
             features['away_imports_available'] = np.nan
             features['away_import_count'] = np.nan
             features['import_advantage'] = np.nan
+        
+        # ----------------------------------------------------------------
+        # Rest Days Features (NEW)
+        # ----------------------------------------------------------------
+        home_rest = self.get_rest_days(home_team, game_date, schedule)
+        away_rest = self.get_rest_days(away_team, game_date, schedule)
+        
+        features['home_rest_days'] = float(min(home_rest, 14))  # Cap at 14
+        features['away_rest_days'] = float(min(away_rest, 14))
+        
+        rest_features = self.calculate_rest_advantage(home_rest, away_rest)
+        features['rest_diff'] = rest_features['rest_diff']
+        features['home_b2b'] = rest_features['home_b2b']
+        features['away_b2b'] = rest_features['away_b2b']
+        features['rest_advantage_category'] = rest_features['rest_advantage_category']
+        
+        # ----------------------------------------------------------------
+        # Streak and Momentum Features (NEW)
+        # ----------------------------------------------------------------
+        home_streak = self.get_win_streak(home_team, game_date, historical_data)
+        away_streak = self.get_win_streak(away_team, game_date, historical_data)
+        
+        features['home_streak'] = float(home_streak)
+        features['away_streak'] = float(away_streak)
+        features['streak_diff'] = float(home_streak - away_streak)
+        
+        # Recent form (overall)
+        home_form = self.get_recent_form(home_team, game_date, historical_data)
+        away_form = self.get_recent_form(away_team, game_date, historical_data)
+        
+        features['home_win_pct_l5'] = home_form['win_pct']
+        features['home_avg_margin_l5'] = home_form['avg_margin']
+        features['away_win_pct_l5'] = away_form['win_pct']
+        features['away_avg_margin_l5'] = away_form['avg_margin']
+        features['form_diff'] = home_form['win_pct'] - away_form['win_pct']
+        
+        # Home/Away specific form
+        home_home_form = self.get_recent_form(
+            home_team, game_date, historical_data, home_away_filter='home'
+        )
+        away_away_form = self.get_recent_form(
+            away_team, game_date, historical_data, home_away_filter='away'
+        )
+        
+        features['home_home_win_pct'] = home_home_form['win_pct']
+        features['away_away_win_pct'] = away_away_form['win_pct']
         
         return features
     
