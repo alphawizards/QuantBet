@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
     TrendingUp,
     Target,
     Award,
-    Percent,
     Activity,
-    BarChart3,
 } from 'lucide-react';
 import { MetricCard } from '../components/MetricCard';
 import { EquityCurve } from '../components/EquityCurve';
@@ -13,49 +11,66 @@ import { CalibrationChart } from '../components/CalibrationChart';
 import { ModelComparisonChart } from '../components/ModelComparison';
 import { BetHistoryTable } from '../components/BetHistoryTable';
 import { EloRankings } from '../components/EloRankings';
+import { ModelSelector } from '../components/ModelSelector';
+import { StrategyComparison } from '../components/StrategyComparison';
 import {
-    getLatestBacktest,
+    getBacktestForModel,
     getCalibrationData,
     getModelComparison,
     getEloRankings,
+    getStrategyComparison,
 } from '../api/client';
-import type {
-    BacktestResult,
-    CalibrationBin,
-    ModelComparison,
-    TeamElo,
+import {
+    BETTING_MODELS,
+    type BacktestResult,
+    type CalibrationBin,
+    type ModelComparison,
+    type TeamElo,
+    type StrategyComparisonData,
 } from '../types/api';
 
 export function Dashboard() {
+    const [selectedModel, setSelectedModel] = useState<string>('kelly');
     const [backtest, setBacktest] = useState<BacktestResult | null>(null);
+    const [strategyData, setStrategyData] = useState<StrategyComparisonData | null>(null);
     const [calibration, setCalibration] = useState<CalibrationBin[]>([]);
     const [models, setModels] = useState<ModelComparison[]>([]);
     const [rankings, setRankings] = useState<TeamElo[]>([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        async function fetchData() {
-            try {
-                const [bt, cal, mod, rank] = await Promise.all([
-                    getLatestBacktest(),
-                    getCalibrationData(),
-                    getModelComparison(),
-                    getEloRankings(),
-                ]);
-                setBacktest(bt);
-                setCalibration(cal);
-                setModels(mod);
-                setRankings(rank);
-            } catch (error) {
-                console.error('Failed to fetch dashboard data:', error);
-            } finally {
-                setLoading(false);
-            }
+    const fetchData = useCallback(async (modelId: string) => {
+        setLoading(true);
+        try {
+            const [bt, strat, cal, mod, rank] = await Promise.all([
+                getBacktestForModel(modelId),
+                getStrategyComparison(modelId),
+                getCalibrationData(),
+                getModelComparison(),
+                getEloRankings(),
+            ]);
+            setBacktest(bt);
+            setStrategyData(strat);
+            setCalibration(cal);
+            setModels(mod);
+            setRankings(rank);
+        } catch (error) {
+            console.error('Failed to fetch dashboard data:', error);
+        } finally {
+            setLoading(false);
         }
-        fetchData();
     }, []);
 
-    if (loading) {
+    useEffect(() => {
+        fetchData(selectedModel);
+    }, [selectedModel, fetchData]);
+
+    const handleModelChange = (modelId: string) => {
+        setSelectedModel(modelId);
+    };
+
+    const currentModelInfo = BETTING_MODELS.find(m => m.id === selectedModel);
+
+    if (loading && !backtest) {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="animate-pulse text-[var(--muted-foreground)]">
@@ -69,15 +84,42 @@ export function Dashboard() {
 
     return (
         <div className="min-h-screen bg-[var(--background)] p-6">
-            {/* Header */}
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-[var(--foreground)]">
-                    QuantBet Dashboard
-                </h1>
-                <p className="text-[var(--muted-foreground)] mt-1">
-                    NBL/WNBL Betting Model Performance
-                </p>
+            {/* Header with Model Selector */}
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 mb-8">
+                <div>
+                    <h1 className="text-3xl font-bold text-[var(--foreground)]">
+                        QuantBet Dashboard
+                    </h1>
+                    <p className="text-[var(--muted-foreground)] mt-1">
+                        NBL/WNBL Betting Model Performance
+                    </p>
+                </div>
+
+                <div className="w-full lg:w-80">
+                    <ModelSelector
+                        models={BETTING_MODELS}
+                        selected={selectedModel}
+                        onSelect={handleModelChange}
+                    />
+                </div>
             </div>
+
+            {/* Current Model Banner */}
+            {currentModelInfo && (
+                <div className="bg-[var(--primary)]/10 border border-[var(--primary)]/30 rounded-lg p-4 mb-6">
+                    <div className="flex items-center gap-3">
+                        <span className="text-3xl">{currentModelInfo.icon}</span>
+                        <div>
+                            <h2 className="text-lg font-semibold text-[var(--primary)]">
+                                {currentModelInfo.name}
+                            </h2>
+                            <p className="text-sm text-[var(--muted-foreground)]">
+                                {currentModelInfo.description}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Metric Cards */}
             {metrics && (
@@ -113,7 +155,7 @@ export function Dashboard() {
 
             {/* Secondary Metrics */}
             {metrics && (
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
                     <div className="bg-[var(--card)] rounded-lg p-4 border border-[var(--border)]">
                         <p className="text-xs text-[var(--muted-foreground)]">Total Bets</p>
                         <p className="text-xl font-bold">{metrics.totalBets}</p>
@@ -141,16 +183,23 @@ export function Dashboard() {
                 </div>
             )}
 
-            {/* Charts Row 1 */}
+            {/* Strategy Comparison - Full Width */}
+            {strategyData && (
+                <div className="mb-6">
+                    <StrategyComparison strategies={strategyData.strategies} />
+                </div>
+            )}
+
+            {/* Charts Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                {backtest && <EquityCurve data={backtest.equity} />}
                 <CalibrationChart data={calibration} />
+                <ModelComparisonChart data={models} metric="roi" />
             </div>
 
-            {/* Charts Row 2 */}
+            {/* Bottom Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                <ModelComparisonChart data={models} metric="roi" />
                 <EloRankings data={rankings} />
+                {backtest && <EquityCurve data={backtest.equity} />}
             </div>
 
             {/* Bet History */}
@@ -161,6 +210,8 @@ export function Dashboard() {
             {/* Footer */}
             <div className="mt-8 text-center text-sm text-[var(--muted-foreground)]">
                 <p>
+                    Model: {currentModelInfo?.name}
+                    {' | '}
                     Backtest: {backtest?.trainSeasons.join(', ')} → {backtest?.testSeasons.join(', ')}
                     {' | '}Strategy: {backtest?.stakingStrategy}
                 </p>
