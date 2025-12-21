@@ -1,0 +1,43 @@
+# QuantBet Dependencies
+# NBL/WNBL Quantitative Betting System
+
+# Core Scientific Stack
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+
+# Machine Learning
+xgboost>=2.0.0
+scikit-learn>=1.3.0
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# Data Scraping & Integration
+pyreadr>=0.5.0           # Read R RDS files
+requests>=2.31.0         # HTTP requests
+tenacity>=8.2.0          # Retry logic
+fuzzywuzzy>=0.18.0       # Fuzzy string matching
+python-Levenshtein>=0.21.0  # Fast fuzzywuzzy backend
+
+# CLI & Configuration
+click>=8.1.0             # CLI interface
+python-dotenv>=1.0.0     # Environment variables
+
+# Data Storage
+pyarrow>=14.0.0          # Parquet file support
+openpyxl>=3.1.0          # Excel file reading
+
+# Development & Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+mypy>=1.5.0
+
+# Type stubs
+pandas-stubs>=2.0.0
+types-requests>=2.31.0
+
+# Optional: Visualization (for analysis notebooks)
+# matplotlib>=3.7.0
+# seaborn>=0.12.0
