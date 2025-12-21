@@ -69,16 +69,21 @@ class PredictionResult:
 
 @dataclass
 class XGBConfig:
-    """XGBoost hyperparameter configuration."""
-    n_estimators: int = 100
-    max_depth: int = 4
-    learning_rate: float = 0.1
-    subsample: float = 0.8
-    colsample_bytree: float = 0.8
-    min_child_weight: int = 1
-    gamma: float = 0.0
-    reg_alpha: float = 0.0
-    reg_lambda: float = 1.0
+    """
+    XGBoost hyperparameter configuration.
+    
+    Default values are Optuna-tuned on NBL/WNBL historical data
+    (2,136 games, 2009-2025) optimizing for Brier score.
+    """
+    n_estimators: int = 394
+    max_depth: int = 5
+    learning_rate: float = 0.038
+    subsample: float = 0.94
+    colsample_bytree: float = 0.77
+    min_child_weight: int = 3
+    gamma: float = 4.99
+    reg_alpha: float = 1.32
+    reg_lambda: float = 9.88
     scale_pos_weight: float = 1.0
     random_state: int = 42
     
@@ -439,6 +444,51 @@ class NBLPredictor:
     def is_fitted(self) -> bool:
         """Check if model has been fitted."""
         return self._is_fitted
+    
+    @classmethod
+    def tune_hyperparameters(
+        cls,
+        X: pd.DataFrame,
+        y: pd.Series,
+        n_trials: int = 100,
+        timeout: Optional[int] = 3600,
+        calibration_method: str = 'platt'
+    ) -> Tuple["NBLPredictor", "XGBConfig"]:
+        """
+        Tune hyperparameters and return a fitted predictor with optimal config.
+        
+        Uses Optuna for Bayesian optimization with TimeSeriesSplit CV
+        to find the best XGBoost hyperparameters for Brier score minimization.
+        
+        Args:
+            X: Feature DataFrame
+            y: Target Series
+            n_trials: Maximum number of Optuna trials
+            timeout: Maximum time in seconds (None = no limit)
+            calibration_method: 'platt' or 'isotonic'
+        
+        Returns:
+            Tuple of (fitted NBLPredictor with optimal config, XGBConfig)
+        
+        Example:
+            >>> predictor, config = NBLPredictor.tune_hyperparameters(
+            ...     X_train, y_train, n_trials=50
+            ... )
+            >>> print(f"Best Brier: {predictor.evaluate(X_test, y_test).brier_score}")
+        """
+        from .tuning import HyperparameterTuner
+        
+        tuner = HyperparameterTuner(calibrate=(calibration_method == 'platt'))
+        result = tuner.tune(X, y, n_trials=n_trials, timeout=timeout)
+        
+        config = result.to_xgb_config()
+        
+        # Create and fit predictor with optimal config
+        predictor = cls(config=config, calibration_method=calibration_method)
+        predictor.fit(X, y)
+        
+        return predictor, config
+
 
 
 def walk_forward_backtest(
