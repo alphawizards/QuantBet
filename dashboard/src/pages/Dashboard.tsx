@@ -13,6 +13,7 @@ import { BetHistoryTable } from '../components/BetHistoryTable';
 import { EloRankings } from '../components/EloRankings';
 import { ModelSelector } from '../components/ModelSelector';
 import { StrategyComparison } from '../components/StrategyComparison';
+import { OddsCalculator } from '../components/OddsCalculator';
 import {
     getBacktestForModel,
     getCalibrationData,
@@ -197,8 +198,9 @@ export function Dashboard() {
             </div>
 
             {/* Bottom Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 <EloRankings data={rankings} />
+                <OddsCalculator />
                 {backtest && <EquityCurve data={backtest.equity} />}
             </div>
 
