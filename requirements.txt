@@ -12,7 +12,10 @@ scikit-learn>=1.3.0
 optuna>=3.4.0
 lightgbm>=4.0.0           # Phase 1: Ensemble diversity
 shap>=0.45.0              # Phase 1: Model explainability
-pandas-ta>=0.3.14         # Phase 1: Momentum features (requires Python 3.12+, using custom impl)
+catboost>=1.2.0           # Phase 2: Categorical feature handling
+pymc>=5.10.0              # Phase 2: Bayesian modeling
+arviz>=0.17.0             # Phase 2: Bayesian visualization
+# Note: pandas-ta requires Python 3.12+, using custom impl in src/features/momentum.py
 
 
 # Database
