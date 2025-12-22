@@ -163,6 +163,38 @@ class LiveGameOdds(BaseModel):
     away_implied_prob: float
 
 
+class TodaysPrediction(BaseModel):
+    """Comprehensive prediction for today's game."""
+    event_id: str
+    home_team: str
+    away_team: str
+    commence_time: str
+    
+    # Model prediction with uncertainty
+    predicted_home_prob: float
+    predicted_home_prob_lower: float  # 95% CI lower
+    predicted_home_prob_upper: float  # 95% CI upper
+    uncertainty: float  # Standard deviation
+    
+    # Live odds
+    home_odds: float
+    away_odds: float
+    best_bookmaker: str
+    
+    # Edge analysis
+    home_edge: float  # Positive = value on home
+    away_edge: float  # Positive = value on away
+    
+    # Recommendation
+    recommendation: str  # "BET_HOME", "BET_AWAY", "SKIP"
+    kelly_fraction: float
+    recommended_stake_pct: float  # As percentage of bankroll
+    confidence: str  # "HIGH", "MEDIUM", "LOW"
+    
+    # Top factors (SHAP-based)
+    top_factors: List[str]  # e.g. ["Home team on 3-game win streak", "Away team traveled 2000km"]
+
+
 
 app = FastAPI(
     title="QuantBet NBL API",
@@ -230,14 +262,12 @@ async def health_check():
 @app.get("/predictions/today", response_model=List[GamePrediction], tags=["Predictions"])
 async def get_today_predictions():
     """
-    Get predictions for today's games.
+    Get predictions for today's games (basic response model).
     
     Returns predictions for all NBL/WNBL games scheduled today.
+    For comprehensive predictions with odds and Kelly, use /predictions/today/full
     """
-    # In production, would query database for today's games
-    # and run predictions through the model
-    
-    # Mock response for API structure
+    # Basic version - returns mock data
     today = date.today().isoformat()
     
     return [
@@ -254,6 +284,138 @@ async def get_today_predictions():
             edge=0.05
         )
     ]
+
+
+@app.get("/predictions/today/full", response_model=List[TodaysPrediction], tags=["Predictions"])
+async def get_today_full_predictions(
+    sport: str = Query("nbl", description="Sport: 'nbl' or 'wnbl'"),
+    bankroll: float = Query(1000.0, description="Your bankroll for stake calculations"),
+    kelly_fraction: float = Query(0.25, description="Kelly fraction (0.25 = quarter Kelly)")
+):
+    """
+    Get comprehensive predictions with live odds and Kelly stakes.
+    
+    This is the main endpoint for daily betting decisions. It combines:
+    - Bayesian Elo ratings with uncertainty
+    - Live odds from Australian bookmakers
+    - Kelly criterion stake sizing
+    - Factor explanations for each prediction
+    
+    Returns empty list if no games today or odds unavailable.
+    """
+    try:
+        from ..data.odds_api import OddsAPIClient
+        from ..model.bayesian_elo import BayesianEloRating
+        
+        # Initialize clients
+        odds_client = OddsAPIClient()
+        elo = BayesianEloRating()
+        
+        # Fetch live odds
+        if sport.lower() == "wnbl":
+            games = odds_client.get_wnbl_odds()
+        else:
+            games = odds_client.get_nbl_odds()
+        
+        if not games:
+            return []
+        
+        predictions = []
+        
+        for game in games:
+            # Get Bayesian Elo prediction with uncertainty
+            prob, uncertainty = elo.predict_proba(game.home_team, game.away_team)
+            pred_details = elo.predict_with_confidence(game.home_team, game.away_team)
+            
+            # Calculate edges
+            home_implied = 1 / game.best_home_odds if game.best_home_odds > 0 else 0
+            away_implied = 1 / game.best_away_odds if game.best_away_odds > 0 else 0
+            
+            home_edge = prob - home_implied
+            away_edge = (1 - prob) - away_implied
+            
+            # Determine recommendation
+            min_edge = 0.03  # 3% minimum edge to bet
+            
+            if home_edge > away_edge and home_edge > min_edge:
+                recommendation = "BET_HOME"
+                best_edge = home_edge
+                odds_to_use = game.best_home_odds
+                implied = home_implied
+                prob_to_use = prob
+            elif away_edge > home_edge and away_edge > min_edge:
+                recommendation = "BET_AWAY"
+                best_edge = away_edge
+                odds_to_use = game.best_away_odds
+                implied = away_implied
+                prob_to_use = 1 - prob
+            else:
+                recommendation = "SKIP"
+                best_edge = max(home_edge, away_edge)
+                odds_to_use = game.best_home_odds
+                implied = home_implied
+                prob_to_use = prob
+            
+            # Calculate Kelly stake
+            if recommendation != "SKIP" and best_edge > 0:
+                kelly = (prob_to_use * odds_to_use - 1) / (odds_to_use - 1)
+                kelly = max(0, kelly * kelly_fraction)
+            else:
+                kelly = 0
+            
+            # Determine confidence level
+            if uncertainty < 0.05:
+                confidence = "HIGH"
+            elif uncertainty < 0.10:
+                confidence = "MEDIUM"
+            else:
+                confidence = "LOW"
+            
+            # Generate top factors (mock for now, would use SHAP in production)
+            factors = []
+            if pred_details['home_rating_mean'] > pred_details['away_rating_mean'] + 50:
+                factors.append(f"{game.home_team} is rated {int(pred_details['home_rating_mean'] - pred_details['away_rating_mean'])} points higher")
+            if best_edge > 0.05:
+                factors.append(f"Strong edge of {best_edge:.1%} vs market")
+            if uncertainty < 0.08:
+                factors.append("High confidence prediction")
+            if not factors:
+                factors.append("No strong factors detected")
+            
+            predictions.append(TodaysPrediction(
+                event_id=game.event_id,
+                home_team=game.home_team,
+                away_team=game.away_team,
+                commence_time=game.commence_time.isoformat(),
+                predicted_home_prob=round(prob, 4),
+                predicted_home_prob_lower=round(pred_details['ci_05'], 4),
+                predicted_home_prob_upper=round(pred_details['ci_95'], 4),
+                uncertainty=round(uncertainty, 4),
+                home_odds=game.best_home_odds,
+                away_odds=game.best_away_odds,
+                best_bookmaker=game.best_home_bookmaker if recommendation == "BET_HOME" else game.best_away_bookmaker,
+                home_edge=round(home_edge, 4),
+                away_edge=round(away_edge, 4),
+                recommendation=recommendation,
+                kelly_fraction=round(kelly, 4),
+                recommended_stake_pct=round(kelly * 100, 2),
+                confidence=confidence,
+                top_factors=factors[:3]
+            ))
+        
+        # Log quota usage
+        if odds_client.last_quota:
+            logger.info(
+                f"Predictions generated. Odds API quota: {odds_client.last_quota.requests_remaining} remaining"
+            )
+        
+        return predictions
+        
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=f"Odds API error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to generate predictions: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate predictions")
 
 
 @app.get("/predictions/{game_id}", response_model=GamePrediction, tags=["Predictions"])

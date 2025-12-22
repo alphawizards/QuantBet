@@ -14,6 +14,7 @@ import { EloRankings } from '../components/EloRankings';
 import { ModelSelector } from '../components/ModelSelector';
 import { StrategyComparison } from '../components/StrategyComparison';
 import { OddsCalculator } from '../components/OddsCalculator';
+import TodaysPicks from '../components/TodaysPicks';
 import {
     getBacktestForModel,
     getCalibrationData,
@@ -104,6 +105,9 @@ export function Dashboard() {
                     />
                 </div>
             </div>
+
+            {/* TODAY'S PICKS - Primary component for daily use */}
+            <TodaysPicks bankroll={1000} />
 
             {/* Current Model Banner */}
             {currentModelInfo && (
