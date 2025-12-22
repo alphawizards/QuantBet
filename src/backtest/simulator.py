@@ -333,7 +333,7 @@ class BoundedKellyStake(StakingStrategy):
         peak = peak_bankroll or bankroll
         floor = peak * self.floor_fraction
         
-        result = bounded_kelly(
+        result, max_frac = bounded_kelly(
             prob=bet.prob,
             decimal_odds=bet.decimal_odds,
             bankroll=bankroll,

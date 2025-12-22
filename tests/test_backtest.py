@@ -78,18 +78,18 @@ def sample_actuals():
 @pytest.fixture
 def sample_game_data():
     """Sample game data for backtesting."""
-    dates = pd.date_range('2023-01-01', periods=100, freq='D')
+    dates = pd.date_range('2021-01-01', periods=200, freq='D')
     
     return pd.DataFrame({
         'game_date': dates,
-        'season': ['2022-23'] * 50 + ['2023-24'] * 50,
-        'home_team': ['MEL'] * 100,
-        'away_team': ['SYD'] * 100,
-        'home_win': np.random.randint(0, 2, 100),
-        'home_odds': np.random.uniform(1.5, 3.0, 100),
-        'feature_1': np.random.randn(100),
-        'feature_2': np.random.randn(100),
-        'feature_3': np.random.randn(100),
+        'season': ['2021-22'] * 50 + ['2022-23'] * 50 + ['2023-24'] * 50 + ['2024-25'] * 50,
+        'home_team': ['MEL'] * 200,
+        'away_team': ['SYD'] * 200,
+        'home_win': np.random.randint(0, 2, 200),
+        'home_odds': np.random.uniform(1.5, 3.0, 200),
+        'feature_1': np.random.randn(200),
+        'feature_2': np.random.randn(200),
+        'feature_3': np.random.randn(200),
     })
 
 

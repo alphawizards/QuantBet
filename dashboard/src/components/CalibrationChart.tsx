@@ -1,12 +1,10 @@
 import {
-    BarChart,
     Bar,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    ReferenceLine,
     Line,
     ComposedChart,
 } from 'recharts';
@@ -23,7 +21,7 @@ export function CalibrationChart({ data }: CalibrationChartProps) {
         perfect: d.predicted,
     }));
 
-    const CustomTooltip = ({ active, payload, label }: any) => {
+    const CustomTooltip = ({ active, payload, label: _label }: any) => {
         if (active && payload && payload.length > 0) {
             const item = payload[0].payload;
             const error = Math.abs(item.predicted - item.actual);
