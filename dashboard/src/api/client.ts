@@ -1,6 +1,5 @@
 import axios from 'axios';
 import type {
-    BacktestMetrics,
     EquityPoint,
     CalibrationBin,
     BetRecord,
@@ -10,7 +9,6 @@ import type {
     DashboardSummary,
     StrategyEquity,
     StrategyComparisonData,
-    STAKING_STRATEGIES,
 } from '../types/api';
 
 const API_BASE = '/api';

@@ -314,7 +314,7 @@ class TestBetOpportunity:
     def test_edge_calculation(self):
         """Edge is model prob minus market prob."""
         bet = BetOpportunity(prob=0.55, decimal_odds=2.0, market_prob=0.50)
-        assert bet.edge == 0.05
+        assert bet.edge == pytest.approx(0.05)
     
     def test_validation(self):
         """Invalid inputs raise ValueError."""

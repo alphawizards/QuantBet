@@ -7,10 +7,9 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    Legend,
     ReferenceLine,
 } from 'recharts';
-import type { StrategyEquity, EquityPoint } from '../types/api';
+import type { StrategyEquity } from '../types/api';
 
 interface StrategyComparisonProps {
     strategies: StrategyEquity[];
@@ -127,8 +126,8 @@ export function StrategyComparison({
                             key={strategy.strategyId}
                             onClick={() => toggleStrategy(strategy.strategyId)}
                             className={`px-3 py-1 text-xs rounded-full border transition-all ${visibleStrategies.has(strategy.strategyId)
-                                    ? 'border-transparent text-white'
-                                    : 'border-[var(--border)] text-[var(--muted-foreground)] bg-transparent'
+                                ? 'border-transparent text-white'
+                                : 'border-[var(--border)] text-[var(--muted-foreground)] bg-transparent'
                                 }`}
                             style={{
                                 backgroundColor: visibleStrategies.has(strategy.strategyId)
