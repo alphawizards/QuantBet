@@ -15,7 +15,9 @@ shap>=0.45.0              # Phase 1: Model explainability
 catboost>=1.2.0           # Phase 2: Categorical feature handling
 pymc>=5.10.0              # Phase 2: Bayesian modeling
 arviz>=0.17.0             # Phase 2: Bayesian visualization
+statsmodels>=0.14.0       # Phase 4: Statistical testing, power analysis
 # Note: pandas-ta requires Python 3.12+, using custom impl in src/features/momentum.py
+
 
 
 # Database
