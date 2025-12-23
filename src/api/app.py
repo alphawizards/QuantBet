@@ -10,19 +10,31 @@ Implements SKILL.md patterns:
     - Low-latency inference (<100ms P95)
     - Comprehensive logging
     - Health checks
+
+Security features:
+    - API Key authentication (X-API-Key header)
+    - HTTP Basic Auth for admin endpoints
+    - Rate limiting (100 requests/minute)
+    - Input validation with Pydantic
 """
 
 from datetime import datetime, date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Annotated
 import logging
 import os
+import re
 import secrets
+import time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel, Field
+from fastapi.security import HTTPBasic, HTTPBasicCredentials, APIKeyHeader
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator, model_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Load environment variables from .env file
 load_dotenv()
@@ -30,12 +42,73 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Rate Limiting Configuration
+# ============================================================================
+
+limiter = Limiter(key_func=get_remote_address)
+
+# NBL team codes for validation
+VALID_NBL_TEAMS = {
+    "MEL", "SYD", "PER", "BRI", "ADL", "NZB", "ILL", "CAI", "TAS", "SEM",
+    "Melbourne United", "Sydney Kings", "Perth Wildcats", "Brisbane Bullets",
+    "Adelaide 36ers", "New Zealand Breakers", "Illawarra Hawks",
+    "Cairns Taipans", "Tasmania JackJumpers", "South East Melbourne Phoenix"
+}
+
+VALID_WNBL_TEAMS = {
+    "MEL", "SYD", "PER", "CAN", "ADL", "BEN", "TOW", "SOU",
+    "Melbourne Boomers", "Sydney Flames", "Perth Lynx", "Canberra Capitals",
+    "Adelaide Lightning", "Bendigo Spirit", "Townsville Fire", "Southside Flyers"
+}
+
 
 # ============================================================================
 # Authentication
 # ============================================================================
 
 security = HTTPBasic()
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def get_api_key() -> str:
+    """Get API key from environment."""
+    api_key = os.getenv("QUANTBET_API_KEY", "")
+    if not api_key:
+        logger.warning("QUANTBET_API_KEY not set - API key auth disabled")
+    return api_key
+
+
+async def verify_api_key(
+    api_key: Optional[str] = Depends(api_key_header)
+) -> Optional[str]:
+    """
+    Verify API key from X-API-Key header.
+    
+    API key is stored in QUANTBET_API_KEY environment variable.
+    If not set, authentication is skipped (development mode).
+    """
+    expected_key = get_api_key()
+    
+    # If no API key is configured, skip auth (dev mode)
+    if not expected_key:
+        return None
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key. Provide X-API-Key header.",
+            headers={"WWW-Authenticate": "ApiKey"}
+        )
+    
+    if not secrets.compare_digest(api_key.encode("utf-8"), expected_key.encode("utf-8")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key"
+        )
+    
+    return api_key
+
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
     """
@@ -123,13 +196,51 @@ class HealthResponse(BaseModel):
 
 
 class OddsInput(BaseModel):
-    """Manual odds input for stake calculation."""
-    game_id: str
-    home_team: str
-    away_team: str
-    home_odds: float = Field(..., gt=1.0, description="Decimal odds for home win")
-    away_odds: float = Field(..., gt=1.0, description="Decimal odds for away win")
-    predicted_home_prob: Optional[float] = Field(None, ge=0, le=1, description="Override model prediction")
+    """Manual odds input for stake calculation with comprehensive validation."""
+    game_id: str = Field(..., min_length=3, max_length=50, description="Game identifier")
+    home_team: str = Field(..., min_length=2, max_length=50, description="Home team name/code")
+    away_team: str = Field(..., min_length=2, max_length=50, description="Away team name/code")
+    home_odds: float = Field(..., gt=1.01, le=100.0, description="Decimal odds for home win (must be between 1.01 and 100)")
+    away_odds: float = Field(..., gt=1.01, le=100.0, description="Decimal odds for away win (must be between 1.01 and 100)")
+    predicted_home_prob: Optional[float] = Field(None, ge=0.01, le=0.99, description="Override model prediction (must be between 0.01 and 0.99)")
+    
+    @field_validator('game_id')
+    @classmethod
+    def validate_game_id(cls, v: str) -> str:
+        """Validate game_id format."""
+        # Allow alphanumeric with underscores and hyphens
+        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
+            raise ValueError('game_id must be alphanumeric with underscores/hyphens only')
+        return v
+    
+    @field_validator('home_team', 'away_team')
+    @classmethod
+    def validate_team_name(cls, v: str) -> str:
+        """Validate team name format."""
+        # Strip and check for injection attempts
+        v = v.strip()
+        if not re.match(r'^[a-zA-Z0-9\s-]+$', v):
+            raise ValueError('Team name must be alphanumeric with spaces/hyphens only')
+        return v
+    
+    @model_validator(mode='after')
+    def validate_teams_different(self):
+        """Ensure home and away teams are different."""
+        if self.home_team.upper() == self.away_team.upper():
+            raise ValueError('Home and away teams must be different')
+        return self
+    
+    @model_validator(mode='after')
+    def validate_odds_reasonable(self):
+        """Ensure combined odds represent valid probabilities."""
+        # Implied probabilities should sum to at least 1 (due to bookmaker margin)
+        # But not exceed ~1.5 which would be unrealistic
+        combined_implied = (1 / self.home_odds) + (1 / self.away_odds)
+        if combined_implied < 0.9:
+            raise ValueError('Combined implied probability too low - check odds values')
+        if combined_implied > 1.5:
+            raise ValueError('Combined implied probability too high - check odds values')
+        return self
 
 
 class StakeRecommendation(BaseModel):
@@ -199,19 +310,35 @@ class TodaysPrediction(BaseModel):
 app = FastAPI(
     title="QuantBet NBL API",
     description="NBL/WNBL sports betting predictions powered by ML",
-    version="1.0.0",
+    version="1.1.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
-# CORS middleware
+# Add rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware - configure for production
+allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately in production
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
+
+
+# Request timing middleware
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Add X-Process-Time header for performance monitoring."""
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(round(process_time * 1000, 2)) + "ms"
+    return response
 
 
 # ============================================================================
@@ -260,9 +387,16 @@ async def health_check():
 
 
 @app.get("/predictions/today", response_model=List[GamePrediction], tags=["Predictions"])
-async def get_today_predictions():
+@limiter.limit("60/minute")
+async def get_today_predictions(
+    request: Request,
+    _api_key: Optional[str] = Depends(verify_api_key)
+):
     """
     Get predictions for today's games (basic response model).
+    
+    Rate limited to 60 requests per minute.
+    Requires API key in production (X-API-Key header).
     
     Returns predictions for all NBL/WNBL games scheduled today.
     For comprehensive predictions with odds and Kelly, use /predictions/today/full
@@ -287,10 +421,13 @@ async def get_today_predictions():
 
 
 @app.get("/predictions/today/full", response_model=List[TodaysPrediction], tags=["Predictions"])
+@limiter.limit("30/minute")
 async def get_today_full_predictions(
-    sport: str = Query("nbl", description="Sport: 'nbl' or 'wnbl'"),
-    bankroll: float = Query(1000.0, description="Your bankroll for stake calculations"),
-    kelly_fraction: float = Query(0.25, description="Kelly fraction (0.25 = quarter Kelly)")
+    request: Request,
+    sport: str = Query("nbl", pattern="^(nbl|wnbl)$", description="Sport: 'nbl' or 'wnbl'"),
+    bankroll: float = Query(1000.0, gt=0, le=10000000, description="Your bankroll for stake calculations"),
+    kelly_fraction: float = Query(0.25, gt=0, le=1.0, description="Kelly fraction (0.25 = quarter Kelly)"),
+    _api_key: Optional[str] = Depends(verify_api_key)
 ):
     """
     Get comprehensive predictions with live odds and Kelly stakes.
@@ -456,10 +593,13 @@ async def get_game_prediction(game_id: str):
 
 
 @app.get("/recommendations", response_model=List[BetRecommendation], tags=["Betting"])
+@limiter.limit("30/minute")
 async def get_betting_recommendations(
-    bankroll: float = Query(1000.0, gt=0, description="Current bankroll"),
+    request: Request,
+    bankroll: float = Query(1000.0, gt=0, le=10000000, description="Current bankroll"),
     min_edge: float = Query(0.02, ge=0, le=0.5, description="Minimum edge threshold"),
-    kelly_fraction: float = Query(0.25, gt=0, le=1.0, description="Kelly fraction to use")
+    kelly_fraction: float = Query(0.25, gt=0, le=1.0, description="Kelly fraction to use"),
+    _api_key: Optional[str] = Depends(verify_api_key)
 ):
     """
     Get betting recommendations for today.
