@@ -324,3 +324,215 @@ class NBLDataScraper:
             deleted += 1
         logger.info(f"Cleared {deleted} cached files")
         return deleted
+    
+    # =========================================================================
+    # Four Factors Data Extraction Methods
+    # =========================================================================
+    
+    def get_four_factors_data(
+        self,
+        season: Optional[str] = None,
+        min_season: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        Get prepared Four Factors dataset with team and opponent stats merged.
+        
+        Returns game-level data with all stats needed to compute Dean Oliver's
+        Four Factors for both home and away teams.
+        
+        Args:
+            season: Filter to specific season (e.g., "2023-2024")
+            min_season: Only include seasons >= this (e.g., "2020-2021")
+        
+        Returns:
+            DataFrame with columns:
+                - match_id, season, game_date
+                - home_team, away_team
+                - home_score, away_score
+                - home_fgm, home_fga, home_fg3m, home_fta, home_ftm
+                - home_turnovers, home_orb, home_drb
+                - away_fgm, away_fga, away_fg3m, away_fta, away_ftm
+                - away_turnovers, away_orb, away_drb
+                - home_possessions, away_possessions, pace
+        
+        Example:
+            >>> ff_data = scraper.get_four_factors_data(min_season="2020-2021")
+            >>> print(ff_data[['home_team', 'away_team', 'pace']])
+        """
+        # Get team box scores
+        team_box = self.get_team_box_scores()
+        
+        # Get match results for dates
+        results = self.get_match_results(format="wide")
+        
+        # Ensure we have required columns
+        required_cols = [
+            'match_id', 'season', 'home_away', 'name', 'code', 'score',
+            'field_goals_made', 'field_goals_attempted',
+            'three_pointers_made', 'free_throws_made', 'free_throws_attempted',
+            'turnovers', 'rebounds_offensive', 'rebounds_defensive'
+        ]
+        
+        missing = set(required_cols) - set(team_box.columns)
+        if missing:
+            logger.warning(f"Missing columns in team box scores: {missing}")
+            # Try alternate column names
+            col_remap = {
+                'offensive_rebounds': 'rebounds_offensive',
+                'defensive_rebounds': 'rebounds_defensive',
+            }
+            for old, new in col_remap.items():
+                if old in team_box.columns and new not in team_box.columns:
+                    team_box[new] = team_box[old]
+        
+        # Split into home and away teams
+        home_box = team_box[team_box['home_away'] == 'home'].copy()
+        away_box = team_box[team_box['home_away'] == 'away'].copy()
+        
+        # Rename columns for home/away perspective
+        home_cols = {
+            'name': 'home_team_name',
+            'code': 'home_team',
+            'score': 'home_score',
+            'field_goals_made': 'home_fgm',
+            'field_goals_attempted': 'home_fga',
+            'three_pointers_made': 'home_fg3m',
+            'free_throws_made': 'home_ftm',
+            'free_throws_attempted': 'home_fta',
+            'turnovers': 'home_turnovers',
+            'rebounds_offensive': 'home_orb',
+            'rebounds_defensive': 'home_drb',
+        }
+        
+        away_cols = {
+            'name': 'away_team_name',
+            'code': 'away_team',
+            'score': 'away_score',
+            'field_goals_made': 'away_fgm',
+            'field_goals_attempted': 'away_fga',
+            'three_pointers_made': 'away_fg3m',
+            'free_throws_made': 'away_ftm',
+            'free_throws_attempted': 'away_fta',
+            'turnovers': 'away_turnovers',
+            'rebounds_offensive': 'away_orb',
+            'rebounds_defensive': 'away_drb',
+        }
+        
+        home_box = home_box.rename(columns=home_cols)
+        away_box = away_box.rename(columns=away_cols)
+        
+        # Merge home and away on match_id
+        home_keep = ['match_id', 'season'] + list(home_cols.values())
+        away_keep = ['match_id'] + list(away_cols.values())
+        
+        home_keep = [c for c in home_keep if c in home_box.columns]
+        away_keep = [c for c in away_keep if c in away_box.columns]
+        
+        merged = pd.merge(
+            home_box[home_keep],
+            away_box[away_keep],
+            on='match_id',
+            how='inner'
+        )
+        
+        # Add game date from results
+        if 'match_time' in results.columns:
+            date_df = results[['match_id', 'match_time']].copy()
+            date_df['game_date'] = pd.to_datetime(date_df['match_time']).dt.date
+            merged = pd.merge(merged, date_df[['match_id', 'game_date']], 
+                              on='match_id', how='left')
+        
+        # Calculate possessions and pace
+        merged = self._add_possessions_and_pace(merged)
+        
+        # Filter by season
+        if season:
+            merged = merged[merged['season'] == season]
+        if min_season:
+            merged = merged[merged['season'] >= min_season]
+        
+        # Sort by date
+        if 'game_date' in merged.columns:
+            merged = merged.sort_values('game_date').reset_index(drop=True)
+        
+        logger.info(f"Four Factors data: {len(merged)} games")
+        return merged
+    
+    def _add_possessions_and_pace(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add estimated possessions and pace to DataFrame.
+        
+        Uses the standard possession formula:
+            Poss = FGA - OREB + TO + 0.44 * FTA
+        
+        Pace is normalized to NBA 48-minute standard from FIBA 40-minute games:
+            Pace = (48/40) * (home_poss + away_poss) / 2
+        """
+        df = df.copy()
+        
+        # Home possessions
+        if all(c in df.columns for c in ['home_fga', 'home_orb', 'home_turnovers', 'home_fta']):
+            df['home_possessions'] = (
+                df['home_fga'] 
+                - df['home_orb'] 
+                + df['home_turnovers'] 
+                + 0.44 * df['home_fta']
+            )
+        
+        # Away possessions
+        if all(c in df.columns for c in ['away_fga', 'away_orb', 'away_turnovers', 'away_fta']):
+            df['away_possessions'] = (
+                df['away_fga'] 
+                - df['away_orb'] 
+                + df['away_turnovers'] 
+                + 0.44 * df['away_fta']
+            )
+        
+        # Game pace (normalized to 48-min NBA standard)
+        if 'home_possessions' in df.columns and 'away_possessions' in df.columns:
+            # Average of both teams' possessions, scaled from 40 to 48 minutes
+            df['pace'] = (48 / 40) * (df['home_possessions'] + df['away_possessions']) / 2
+        
+        return df
+    
+    def normalize_to_per_100(
+        self,
+        df: pd.DataFrame,
+        stat_columns: list,
+        poss_column: str = 'home_possessions'
+    ) -> pd.DataFrame:
+        """
+        Normalize counting stats to per-100-possessions rate.
+        
+        This accounts for NBL's higher pace compared to other leagues
+        and allows fair comparison across games/seasons.
+        
+        Args:
+            df: DataFrame with counting stats
+            stat_columns: List of column names to normalize
+            poss_column: Column containing possession count
+            
+        Returns:
+            DataFrame with new columns named {original}_per100
+            
+        Example:
+            >>> normalized = scraper.normalize_to_per_100(
+            ...     df, 
+            ...     ['home_score', 'home_turnovers'],
+            ...     'home_possessions'
+            ... )
+        """
+        df = df.copy()
+        
+        if poss_column not in df.columns:
+            logger.warning(f"Possession column '{poss_column}' not found")
+            return df
+        
+        for col in stat_columns:
+            if col in df.columns:
+                # Per 100 = (stat / possessions) * 100
+                df[f'{col}_per100'] = (df[col] / df[poss_column]) * 100
+            else:
+                logger.warning(f"Stat column '{col}' not found")
+        
+        return df

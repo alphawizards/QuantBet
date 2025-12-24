@@ -1,0 +1,166 @@
+{
+  "metadata": {
+    "generated_at": "2025-12-25T07:55:19.626960",
+    "min_season": "2018-2019",
+    "total_games": 1137,
+    "seasons_included": [
+      "2018-2019",
+      "2019-2020",
+      "2020-2021",
+      "2021-2022",
+      "2022-2023",
+      "2023-2024",
+      "2024-2025",
+      "2025-2026"
+    ]
+  },
+  "data_quality": {
+    "total_games": 1137,
+    "complete_data_pct": 91.4,
+    "date_range": [
+      "2018-10-11",
+      "2025-03-23"
+    ],
+    "num_teams": 20,
+    "teams": [
+      "36ERS",
+      "ADL",
+      "BRI",
+      "BULLETS",
+      "Breakers",
+      "CNS",
+      "HAWKS",
+      "HWK",
+      "ILL",
+      "Kings",
+      "MEL",
+      "Melbourne United",
+      "NZL",
+      "PER",
+      "PNX",
+      "SEM",
+      "SYD",
+      "TAS",
+      "Taipans",
+      "Wildcats"
+    ],
+    "warnings": []
+  },
+  "correlations": {
+    "four_factors_vs_wins": [
+      {
+        "metric": "eFG% Differential",
+        "pearson_r": 0.6258,
+        "pearson_p": 0.0,
+        "spearman_rho": 0.6538,
+        "significant": "True"
+      },
+      {
+        "metric": "FT Rate Differential",
+        "pearson_r": 0.2868,
+        "pearson_p": 0.0,
+        "spearman_rho": 0.2929,
+        "significant": "True"
+      },
+      {
+        "metric": "TOV% Differential",
+        "pearson_r": -0.2223,
+        "pearson_p": 0.0,
+        "spearman_rho": -0.2089,
+        "significant": "True"
+      },
+      {
+        "metric": "ORB% Differential",
+        "pearson_r": 0.2175,
+        "pearson_p": 0.0,
+        "spearman_rho": 0.2224,
+        "significant": "True"
+      }
+    ],
+    "olivers_weights": {
+      "efg_pct": 0.4,
+      "tov_pct": 0.25,
+      "orb_pct": 0.2,
+      "ft_rate": 0.15
+    },
+    "nbl_empirical_weights": {
+      "eFG%": 0.463,
+      "FT Rate": 0.212,
+      "TOV%": 0.164,
+      "ORB%": 0.161
+    }
+  },
+  "models": {
+    "logistic_regression": {
+      "coefficients": {
+        "delta_efg": 6.2883,
+        "delta_tov": -3.387,
+        "delta_orb": 2.5801,
+        "delta_ftr": 1.59
+      },
+      "intercept": 0.9186,
+      "brier_score": 0.0264,
+      "cv_accuracy": 0.9651,
+      "cv_brier": 0.0313,
+      "n_samples": 1136,
+      "feature_importance": [
+        {
+          "feature": "delta_efg",
+          "importance": 6.2883
+        },
+        {
+          "feature": "delta_tov",
+          "importance": 3.387
+        },
+        {
+          "feature": "delta_orb",
+          "importance": 2.5801
+        },
+        {
+          "feature": "delta_ftr",
+          "importance": 1.59
+        }
+      ]
+    },
+    "random_forest": {
+      "feature_importance": [
+        {
+          "feature": "delta_efg",
+          "importance": 0.6056
+        },
+        {
+          "feature": "delta_tov",
+          "importance": 0.1658
+        },
+        {
+          "feature": "delta_orb",
+          "importance": 0.1206
+        },
+        {
+          "feature": "delta_ftr",
+          "importance": 0.108
+        }
+      ],
+      "n_samples": 1136
+    }
+  },
+  "pace_analysis": {
+    "nbl_average_pace": 80.08,
+    "pace_std_dev": 5.68,
+    "pace_min": 32.96,
+    "pace_max": 112.44,
+    "high_pace_threshold": 85.76,
+    "low_pace_threshold": 74.4,
+    "pace_win_correlation": {
+      "pearson_r": 0.0514,
+      "p_value": 0.0834,
+      "significant": "False"
+    }
+  },
+  "insights": [
+    "Strongest predictor: eFG% Differential (r=+0.626)",
+    "Logistic regression Brier Score: 0.026 (Good calibration)",
+    "NBL average pace: 80.1 poss/40min (compare to NBA ~100 poss/48min)",
+    "NBL empirical top factor: eFG% (46% of signal)"
+  ]
+}
