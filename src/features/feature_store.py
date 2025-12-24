@@ -137,6 +137,18 @@ class FeatureStore:
         'home_implied_prob': {'min': 0, 'max': 1, 'category': 'market'},
         'away_implied_prob': {'min': 0, 'max': 1, 'category': 'market'},
         'market_vig': {'min': 1, 'max': 1.2, 'category': 'market'},
+        
+        # Advanced metrics (BPM/SOS - calculated from box scores)
+        'home_bpm': {'min': -10, 'max': 10, 'category': 'advanced'},
+        'away_bpm': {'min': -10, 'max': 10, 'category': 'advanced'},
+        'bpm_differential': {'min': -20, 'max': 20, 'category': 'advanced'},
+        'home_sos': {'min': -1, 'max': 1, 'category': 'advanced'},
+        'away_sos': {'min': -1, 'max': 1, 'category': 'advanced'},
+        'home_sos_adj_win_pct': {'min': 0, 'max': 1, 'category': 'advanced'},
+        'away_sos_adj_win_pct': {'min': 0, 'max': 1, 'category': 'advanced'},
+        'sos_adj_win_pct_diff': {'min': -1, 'max': 1, 'category': 'advanced'},
+        'home_expected_wins': {'min': 0, 'max': 30, 'category': 'advanced'},
+        'away_expected_wins': {'min': 0, 'max': 30, 'category': 'advanced'},
     }
     
     def __init__(

@@ -8,6 +8,7 @@ Features generated:
     1. Rolling Efficiency (Last 5 games Offensive/Defensive Rating)
     2. Travel Fatigue Score (Distance-based with Perth-NZ weighting)
     3. Import Availability (Boolean for key import players)
+    4. Advanced Metrics (BPM, SOS, Expected Wins)
 """
 
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from math import radians, sin, cos, sqrt, atan2
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
+
+from .advanced_metrics import AdvancedMetricsCalculator
 
 
 # ============================================================================
@@ -142,6 +145,7 @@ class NBLFeatureEngineer:
         """
         self.rolling_window = rolling_window
         self.team_locations = team_locations or TEAM_LOCATIONS
+        self._advanced_calc = AdvancedMetricsCalculator()
     
     # ========================================================================
     # Rolling Efficiency Features
@@ -1125,6 +1129,310 @@ class NBLFeatureEngineer:
         
         features['home_home_win_pct'] = home_home_form['win_pct']
         features['away_away_win_pct'] = away_away_form['win_pct']
+        
+        # ----------------------------------------------------------------
+        # Four Factors Features (Dean Oliver's Framework)
+        # ----------------------------------------------------------------
+        # Calculate Four Factors differentials from historical rolling data
+        # These are the most predictive metrics in basketball analytics
+        four_factors = self._calculate_four_factors_features(
+            home_team, away_team, game_date, historical_data
+        )
+        features.update(four_factors)
+        
+        # ----------------------------------------------------------------
+        # Advanced Metrics Features (BPM, SOS)
+        # ----------------------------------------------------------------
+        # Calculate BPM and SOS-based features for matchup prediction
+        advanced_features = self._compute_advanced_features(
+            home_team, away_team, game_date, historical_data
+        )
+        features.update(advanced_features)
+        
+        return features
+    
+    def _calculate_four_factors_features(
+        self,
+        home_team: str,
+        away_team: str,
+        game_date: datetime,
+        historical_data: pd.DataFrame
+    ) -> Dict[str, float]:
+        """
+        Calculate Dean Oliver's Four Factors differential features.
+        
+        The Four Factors explain ~90% of winning variance:
+            1. eFG% - Effective Field Goal % (shooting efficiency)
+            2. TOV% - Turnover Percentage (ball security)
+            3. ORB% - Offensive Rebound % (second chances)
+            4. FTR - Free Throw Rate (getting to the line)
+        
+        Returns:
+            Dictionary of Four Factors features
+        """
+        features = {}
+        
+        # Get last N games for each team
+        n_games = self.rolling_window
+        
+        home_games = historical_data[
+            ((historical_data['home_team'] == home_team) |
+             (historical_data['away_team'] == home_team)) &
+            (historical_data['game_date'] < game_date)
+        ].sort_values('game_date', ascending=False).head(n_games)
+        
+        away_games = historical_data[
+            ((historical_data['home_team'] == away_team) |
+             (historical_data['away_team'] == away_team)) &
+            (historical_data['game_date'] < game_date)
+        ].sort_values('game_date', ascending=False).head(n_games)
+        
+        # Calculate Four Factors for each team
+        home_ff = self._compute_team_four_factors(home_games, home_team)
+        away_ff = self._compute_team_four_factors(away_games, away_team)
+        
+        if home_ff and away_ff:
+            # Differential features (home - away)
+            features['delta_efg'] = home_ff['efg_pct'] - away_ff['efg_pct']
+            features['delta_tov'] = home_ff['tov_pct'] - away_ff['tov_pct']
+            features['delta_orb'] = home_ff['orb_pct'] - away_ff['orb_pct']
+            features['delta_ftr'] = home_ff['ft_rate'] - away_ff['ft_rate']
+            
+            # Raw values for each team
+            features['home_efg_pct'] = home_ff['efg_pct']
+            features['home_tov_pct'] = home_ff['tov_pct']
+            features['home_orb_pct'] = home_ff['orb_pct']
+            features['home_ft_rate'] = home_ff['ft_rate']
+            
+            features['away_efg_pct'] = away_ff['efg_pct']
+            features['away_tov_pct'] = away_ff['tov_pct']
+            features['away_orb_pct'] = away_ff['orb_pct']
+            features['away_ft_rate'] = away_ff['ft_rate']
+            
+            # Weighted composite score (Oliver's weights)
+            # eFG: 40%, TOV: 25%, ORB: 20%, FTR: 15%
+            # Note: TOV is inverted (lower is better)
+            features['four_factors_score'] = (
+                0.40 * features['delta_efg'] * 100 +
+                -0.25 * features['delta_tov'] +  # Inverted
+                0.20 * features['delta_orb'] * 100 +
+                0.15 * features['delta_ftr'] * 100
+            )
+        else:
+            # Insufficient data
+            for key in ['delta_efg', 'delta_tov', 'delta_orb', 'delta_ftr',
+                       'home_efg_pct', 'home_tov_pct', 'home_orb_pct', 'home_ft_rate',
+                       'away_efg_pct', 'away_tov_pct', 'away_orb_pct', 'away_ft_rate',
+                       'four_factors_score']:
+                features[key] = np.nan
+        
+        return features
+    
+    def _compute_team_four_factors(
+        self,
+        games: pd.DataFrame,
+        team_code: str
+    ) -> Optional[Dict[str, float]]:
+        """
+        Compute Four Factors from a team's recent games.
+        
+        Args:
+            games: DataFrame of team's games
+            team_code: Team to compute factors for
+        
+        Returns:
+            Dictionary with efg_pct, tov_pct, orb_pct, ft_rate
+        """
+        if len(games) < 3:
+            return None
+        
+        # Accumulate stats
+        totals = {
+            'fgm': 0, 'fg3m': 0, 'fga': 0,
+            'turnovers': 0, 'fta': 0, 'ftm': 0,
+            'orb': 0, 'opp_drb': 0
+        }
+        
+        for _, game in games.iterrows():
+            # Determine if team was home or away
+            if game['home_team'] == team_code:
+                prefix = 'home_'
+                opp_prefix = 'away_'
+            else:
+                prefix = 'away_'
+                opp_prefix = 'home_'
+            
+            # Safely get stats with defaults
+            totals['fgm'] += game.get(f'{prefix}fgm', 0) or 0
+            totals['fg3m'] += game.get(f'{prefix}fg3m', 0) or 0
+            totals['fga'] += game.get(f'{prefix}fga', 0) or 0
+            totals['turnovers'] += game.get(f'{prefix}turnovers', 0) or 0
+            totals['fta'] += game.get(f'{prefix}fta', 0) or 0
+            totals['ftm'] += game.get(f'{prefix}ftm', 0) or 0
+            totals['orb'] += game.get(f'{prefix}oreb', game.get(f'{prefix}orb', 0)) or 0
+            totals['opp_drb'] += game.get(f'{opp_prefix}dreb', game.get(f'{opp_prefix}drb', 0)) or 0
+        
+        # Calculate Four Factors
+        fga = totals['fga']
+        if fga == 0:
+            return None
+        
+        # eFG% = (FGM + 0.5 * 3PM) / FGA
+        efg_pct = (totals['fgm'] + 0.5 * totals['fg3m']) / fga
+        
+        # TOV% = 100 * TO / (FGA + 0.44*FTA + TO)
+        plays = fga + 0.44 * totals['fta'] + totals['turnovers']
+        tov_pct = 100 * totals['turnovers'] / plays if plays > 0 else 0
+        
+        # ORB% = ORB / (ORB + Opp_DRB)
+        total_reb = totals['orb'] + totals['opp_drb']
+        orb_pct = totals['orb'] / total_reb if total_reb > 0 else 0
+        
+        # FTR = FT / FGA (Oliver's definition)
+        ft_rate = totals['ftm'] / fga
+        
+        return {
+            'efg_pct': round(efg_pct, 4),
+            'tov_pct': round(tov_pct, 2),
+            'orb_pct': round(orb_pct, 4),
+            'ft_rate': round(ft_rate, 4)
+        }
+    
+    # ========================================================================
+    # Advanced Metrics Features (BPM, SOS)
+    # ========================================================================
+    
+    def _compute_advanced_features(
+        self,
+        home_team: str,
+        away_team: str,
+        game_date: datetime,
+        historical_data: pd.DataFrame,
+        player_box_scores: Optional[pd.DataFrame] = None
+    ) -> Dict[str, float]:
+        """
+        Compute advanced metrics features (BPM, SOS, Expected Wins).
+        
+        These metrics provide additional signal for game predictions by
+        estimating player-level contributions and schedule-adjusted performance.
+        
+        Args:
+            home_team: Home team code
+            away_team: Away team code
+            game_date: Date of the game
+            historical_data: Historical game results
+            player_box_scores: Optional player-level box scores for BPM
+        
+        Returns:
+            Dictionary with advanced metric features
+        """
+        features: Dict[str, float] = {}
+        n_games = self.rolling_window
+        
+        # Get team ratings for SOS calculation
+        all_teams = set(
+            historical_data['home_team'].unique().tolist() +
+            historical_data['away_team'].unique().tolist()
+        )
+        
+        team_ratings = {}
+        for team in all_teams:
+            team_games = historical_data[
+                ((historical_data['home_team'] == team) |
+                 (historical_data['away_team'] == team)) &
+                (historical_data['game_date'] < game_date)
+            ].tail(n_games)
+            
+            if len(team_games) >= 3:
+                # Calculate simple rating from point differential
+                margins = []
+                for _, g in team_games.iterrows():
+                    if g['home_team'] == team:
+                        margins.append(g['home_score'] - g['away_score'])
+                    else:
+                        margins.append(g['away_score'] - g['home_score'])
+                team_ratings[team] = np.mean(margins) / 10.0  # Normalize
+        
+        # Calculate SOS for both teams
+        if team_ratings:
+            home_sos = self._advanced_calc.calculate_sos(
+                historical_data[historical_data['game_date'] < game_date],
+                home_team,
+                team_ratings
+            )
+            away_sos = self._advanced_calc.calculate_sos(
+                historical_data[historical_data['game_date'] < game_date],
+                away_team,
+                team_ratings
+            )
+            features['home_sos'] = home_sos
+            features['away_sos'] = away_sos
+            features['sos_diff'] = home_sos - away_sos
+        else:
+            features['home_sos'] = 0.0
+            features['away_sos'] = 0.0
+            features['sos_diff'] = 0.0
+        
+        # Calculate team record and SOS-adjusted win %
+        for team, prefix in [(home_team, 'home'), (away_team, 'away')]:
+            team_games = historical_data[
+                ((historical_data['home_team'] == team) |
+                 (historical_data['away_team'] == team)) &
+                (historical_data['game_date'] < game_date)
+            ].tail(n_games)
+            
+            if len(team_games) >= 3:
+                wins = 0
+                points_for = 0
+                points_against = 0
+                
+                for _, g in team_games.iterrows():
+                    if g['home_team'] == team:
+                        won = g['home_score'] > g['away_score']
+                        points_for += g['home_score']
+                        points_against += g['away_score']
+                    else:
+                        won = g['away_score'] > g['home_score']
+                        points_for += g['away_score']
+                        points_against += g['home_score']
+                    wins += int(won)
+                
+                win_pct = wins / len(team_games)
+                sos = features.get(f'{prefix}_sos', 0.0)
+                
+                features[f'{prefix}_sos_adj_win_pct'] = (
+                    self._advanced_calc.calculate_sos_adjusted_win_pct(win_pct, sos)
+                )
+                features[f'{prefix}_expected_wins'] = (
+                    self._advanced_calc.calculate_expected_wins(
+                        points_for, points_against, len(team_games)
+                    )
+                )
+            else:
+                features[f'{prefix}_sos_adj_win_pct'] = 0.5
+                features[f'{prefix}_expected_wins'] = 0.0
+        
+        features['sos_adj_win_pct_diff'] = (
+            features['home_sos_adj_win_pct'] - features['away_sos_adj_win_pct']
+        )
+        
+        # Calculate BPM features if player data available
+        if player_box_scores is not None and not player_box_scores.empty:
+            home_bpm = self._advanced_calc.calculate_team_bpm(
+                player_box_scores, home_team, n_games
+            )
+            away_bpm = self._advanced_calc.calculate_team_bpm(
+                player_box_scores, away_team, n_games
+            )
+            
+            features['home_bpm'] = home_bpm
+            features['away_bpm'] = away_bpm
+            features['bpm_differential'] = home_bpm - away_bpm
+        else:
+            # BPM not available without player data
+            features['home_bpm'] = np.nan
+            features['away_bpm'] = np.nan
+            features['bpm_differential'] = np.nan
         
         return features
     
