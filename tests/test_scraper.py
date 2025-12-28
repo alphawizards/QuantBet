@@ -16,7 +16,7 @@ class TestNBLDataScraper:
     
     def test_endpoint_urls_valid(self):
         """All endpoint URLs should be properly formatted."""
-        from src.data.scraper import NBLDataScraper
+        from src.collectors.scraper import NBLDataScraper
         
         scraper = NBLDataScraper(use_cache=False)
         
@@ -26,7 +26,7 @@ class TestNBLDataScraper:
     
     def test_cache_directory_creation(self):
         """Cache directory should be created on initialization."""
-        from src.data.scraper import NBLDataScraper
+        from src.collectors.scraper import NBLDataScraper
         
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir) / "test_cache"
@@ -36,7 +36,7 @@ class TestNBLDataScraper:
     
     def test_cache_path_generation(self):
         """Cache paths should be unique per endpoint."""
-        from src.data.scraper import NBLDataScraper
+        from src.collectors.scraper import NBLDataScraper
         
         with tempfile.TemporaryDirectory() as tmpdir:
             scraper = NBLDataScraper(cache_dir=tmpdir, use_cache=True)
@@ -47,11 +47,11 @@ class TestNBLDataScraper:
             assert path1 != path2
             assert path1.suffix == ".parquet"
     
-    @patch('src.data.scraper.requests.get')
-    @patch('src.data.scraper.pyreadr.read_r')
+    @patch('src.collectors.scraper.requests.get')
+    @patch('src.collectors.scraper.pyreadr.read_r')
     def test_download_rds_success(self, mock_pyreadr, mock_get):
         """Successful RDS download should return DataFrame."""
-        from src.data.scraper import NBLDataScraper
+        from src.collectors.scraper import NBLDataScraper
         
         # Mock requests response
         mock_response = Mock()
@@ -71,7 +71,7 @@ class TestNBLDataScraper:
     
     def test_clear_cache(self):
         """Clear cache should remove all parquet files."""
-        from src.data.scraper import NBLDataScraper
+        from src.collectors.scraper import NBLDataScraper
         
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_dir = Path(tmpdir)
@@ -92,7 +92,7 @@ class TestNBLDataIntegrator:
     
     def test_team_name_normalization(self):
         """Team names should normalize to standard codes."""
-        from src.data.integration import NBLDataIntegrator
+        from src.collectors.integration import NBLDataIntegrator
         
         integrator = NBLDataIntegrator()
         
@@ -105,7 +105,7 @@ class TestNBLDataIntegrator:
     
     def test_unknown_team_handling(self):
         """Unknown team names should return UNKNOWN."""
-        from src.data.integration import NBLDataIntegrator
+        from src.collectors.integration import NBLDataIntegrator
         
         integrator = NBLDataIntegrator(fuzzy_threshold=90)
         
@@ -114,7 +114,7 @@ class TestNBLDataIntegrator:
     
     def test_na_handling(self):
         """NaN values should be handled gracefully."""
-        from src.data.integration import NBLDataIntegrator
+        from src.collectors.integration import NBLDataIntegrator
         import numpy as np
         
         integrator = NBLDataIntegrator()
@@ -159,7 +159,7 @@ class TestNBLDataIntegrator:
     
     def test_prepare_scraped_data(self, sample_scraped_data):
         """Scraped data should be properly prepared."""
-        from src.data.integration import NBLDataIntegrator
+        from src.collectors.integration import NBLDataIntegrator
         
         integrator = NBLDataIntegrator()
         result = integrator.prepare_scraped_data(sample_scraped_data)
@@ -172,7 +172,7 @@ class TestNBLDataIntegrator:
     
     def test_prepare_xlsx_data(self, sample_xlsx_data):
         """XLSX data should be properly prepared."""
-        from src.data.integration import NBLDataIntegrator
+        from src.collectors.integration import NBLDataIntegrator
         
         integrator = NBLDataIntegrator()
         result = integrator.prepare_xlsx_data(sample_xlsx_data)
@@ -184,7 +184,7 @@ class TestNBLDataIntegrator:
     
     def test_merge_stats(self, sample_scraped_data, sample_xlsx_data):
         """Merge stats should correctly count overlapping games."""
-        from src.data.integration import NBLDataIntegrator
+        from src.collectors.integration import NBLDataIntegrator
         
         integrator = NBLDataIntegrator()
         stats = integrator.get_merge_stats(sample_scraped_data, sample_xlsx_data)
@@ -200,14 +200,14 @@ class TestIntegration:
     
     def test_imports(self):
         """All modules should import correctly."""
-        from src.data import NBLDataScraper, NBLDataIntegrator
+        from src.collectors import NBLDataScraper, NBLDataIntegrator
         
         assert NBLDataScraper is not None
         assert NBLDataIntegrator is not None
     
     def test_scraper_initialization(self):
         """Scraper should initialize with default settings."""
-        from src.data import NBLDataScraper
+        from src.collectors import NBLDataScraper
         
         scraper = NBLDataScraper()
         

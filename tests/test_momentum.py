@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from datetime import datetime, timedelta
 
-from src.features.momentum import (
+from src.models.features.momentum import (
     calculate_rsi,
     calculate_ma_crossover,
     calculate_volatility,

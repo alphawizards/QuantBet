@@ -45,7 +45,7 @@ from src.backtest.engine import (
     BacktestConfig,
     BacktestResult
 )
-from src.portfolio.kelly import BetOpportunity
+from src.strategies.kelly import BetOpportunity
 
 
 # ============================================================================
