@@ -261,39 +261,98 @@ class AdvancedMetricsCalculator:
             'minutes': 'sum',
         }).reset_index()
         
-        # Calculate BPM for each player
-        bpms = []
-        weights = []
+        # Filter players with enough minutes
+        min_minutes_total = self.min_minutes * n_games
+        qualified_players = player_agg[player_agg['minutes'] >= min_minutes_total].copy()
         
-        for _, player in player_agg.iterrows():
-            if player['minutes'] < self.min_minutes * n_games:
-                continue
-            
-            # Map to expected format
-            stats = pd.Series({
-                'pts': player['points'],
-                'trb': player['rebounds_total'],
-                'ast': player['assists'],
-                'stl': player['steals'],
-                'blk': player['blocks'],
-                'tov': player['turnovers'],
-                'pf': player['personal_fouls'],
-                'fgm': player['field_goals_made'],
-                'fga': player['field_goals_attempted'],
-                'fta': player['free_throws_attempted'],
-                'fg3m': player['three_pointers_made'],
-                'mp': player['minutes'] / n_games,
-            })
-            
-            bpm = self.calculate_player_bpm(stats)
-            bpms.append(bpm)
-            weights.append(player['minutes'])
-        
-        if not bpms:
+        if qualified_players.empty:
             return 0.0
+            
+        # Vectorized BPM calculation (Optimization: Replaces iterrows loop)
+        # We assume Position='F' as per original implementation default
         
+        # Extract columns for calculation
+        pts = qualified_players['points']
+        trb = qualified_players['rebounds_total']
+        ast = qualified_players['assists']
+        stl = qualified_players['steals']
+        blk = qualified_players['blocks']
+        tov = qualified_players['turnovers']
+        pf = qualified_players['personal_fouls']
+        # fgm = qualified_players['field_goals_made'] # Not used directly in logic below except implicitly? No.
+        fga = qualified_players['field_goals_attempted']
+        fta = qualified_players['free_throws_attempted']
+        # fg3m = qualified_players['three_pointers_made'] # Not used directly
+        mp = qualified_players['minutes'] / n_games
+
+        # Calculate True Shooting %
+        # denominator = 2 * (fga + 0.44 * fta)
+        ts_denom = 2 * (fga + 0.44 * fta)
+        ts_pct = np.where(ts_denom > 0, pts / ts_denom, 0.0)
+        
+        # Calculate per-100-possession rates
+        poss_estimate = (mp / 40.0) * self.league_avg['pace']
+
+        # Handle cases where poss_estimate <= 0 (should be rare given min_minutes check)
+        # We use a mask to avoid division by zero or invalid calculations
+        valid_mask = poss_estimate > 0
+
+        # Initialize result arrays
+        bpm_values = np.zeros(len(qualified_players))
+
+        if valid_mask.any():
+            # Filter to valid entries for calculation to avoid warnings
+            # or just use where.
+
+            # Using where to safely calculate multiplier
+            per_100_multiplier = np.divide(100.0, poss_estimate, where=valid_mask, out=np.zeros_like(poss_estimate))
+
+            pts_per_100 = pts * per_100_multiplier
+            trb_per_100 = trb * per_100_multiplier
+            ast_per_100 = ast * per_100_multiplier
+            stl_per_100 = stl * per_100_multiplier
+            blk_per_100 = blk * per_100_multiplier
+            tov_per_100 = tov * per_100_multiplier
+            pf_per_100 = pf * per_100_multiplier
+
+            # Get position adjustments (Default 'F')
+            pos_adj = self.POSITION_ADJUSTMENTS.get('F')
+
+            # Calculate raw BPM components
+            scoring = (pts_per_100 - self.league_avg['pts_per_100']) * self.BPM_COEFFICIENTS['pts_per_100']
+            rebounding = trb_per_100 * self.BPM_COEFFICIENTS['trb_per_100'] * pos_adj.get('trb_per_100', 1.0)
+            playmaking = ast_per_100 * self.BPM_COEFFICIENTS['ast_per_100'] * pos_adj.get('ast_per_100', 1.0)
+            steals = stl_per_100 * self.BPM_COEFFICIENTS['stl_per_100']
+            blocks = blk_per_100 * self.BPM_COEFFICIENTS['blk_per_100'] * pos_adj.get('blk_per_100', 1.0)
+            turnovers = tov_per_100 * self.BPM_COEFFICIENTS['tov_per_100']
+            fouls = pf_per_100 * self.BPM_COEFFICIENTS['pf_per_100']
+
+            # Efficiency bonus/penalty
+            ts_diff = ts_pct - self.league_avg['ts_pct']
+            efficiency = ts_diff * self.BPM_COEFFICIENTS['ts_pct'] * pts_per_100
+
+            # Assist-to-turnover bonus
+            # ast_to_tov = ast / max(tov, 1)
+            ast_to_tov = ast / np.maximum(tov, 1.0)
+            playmaking_bonus = np.maximum(0, ast_to_tov - 1.5) * self.BPM_COEFFICIENTS['ast_to_tov']
+
+            # Sum components
+            raw_bpm = (
+                scoring + rebounding + playmaking +
+                steals + blocks + turnovers + fouls +
+                efficiency + playmaking_bonus
+            )
+
+            # Clamp to reasonable range
+            bpm_values = np.clip(raw_bpm, -15.0, 15.0)
+
+            # Apply mask to set 0.0 for invalid ones (already done by initializing bpm_values to 0 and using where logic if careful,
+            # but strict assignment is safer)
+            bpm_values = np.where(valid_mask, bpm_values, 0.0)
+
         # Weighted average by minutes
-        weighted_bpm = np.average(bpms, weights=weights)
+        # qualified_players['minutes'] are the weights
+        weighted_bpm = np.average(bpm_values, weights=qualified_players['minutes'])
         return float(weighted_bpm)
     
     def calculate_bpm_differential(
