@@ -412,7 +412,11 @@ class AdvancedMetricsCalculator:
         pf_exp = points_for ** exponent
         pa_exp = points_against ** exponent
         
-        exp_win_pct = pf_exp / (pf_exp + pa_exp)
+        denominator = pf_exp + pa_exp
+        if denominator == 0:
+            return 0.0
+
+        exp_win_pct = pf_exp / denominator
         exp_wins = exp_win_pct * games_played
         
         return float(exp_wins)
@@ -425,7 +429,8 @@ class AdvancedMetricsCalculator:
     ) -> float:
         """Calculate True Shooting Percentage."""
         denominator = 2 * (fga + 0.44 * fta)
-        if denominator <= 0:
+        # Handle zero or extremely small denominators to prevent infinity
+        if denominator <= 1e-9:
             return 0.0
         return points / denominator
     
