@@ -85,6 +85,7 @@ class NBLDataScraper:
         if cache_dir:
             self.cache_dir = Path(cache_dir)
         else:
+            # Correct path with new structure: src/collectors -> src -> .. -> data
             self.cache_dir = Path(__file__).parent.parent.parent / "data" / "cache"
         
         self.use_cache = use_cache

@@ -277,7 +277,7 @@ class Player(Base):
     
     # Metadata
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+    player_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.current_timestamp()
