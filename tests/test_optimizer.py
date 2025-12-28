@@ -4,8 +4,8 @@ Unit tests for multi-asset simultaneous Kelly optimization.
 
 import pytest
 import numpy as np
-from src.portfolio.kelly import BetOpportunity
-from src.portfolio.optimizer import (
+from src.strategies.kelly import BetOpportunity
+from src.strategies.optimizer import (
     SimultaneousKellyOptimizer,
     optimize_simultaneous_bets,
     handle_correlated_bets,

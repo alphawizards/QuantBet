@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from src.features.advanced_metrics import (
+from src.models.features.advanced_metrics import (
     AdvancedMetricsCalculator,
     PlayerBPM,
     TeamAdvancedMetrics,

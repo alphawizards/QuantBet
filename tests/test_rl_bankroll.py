@@ -8,7 +8,7 @@ import pytest
 import tempfile
 from pathlib import Path
 
-from src.portfolio.rl_bankroll import (
+from src.strategies.rl_bankroll import (
     BettingState,
     BettingAction,
     RLBankrollManager,

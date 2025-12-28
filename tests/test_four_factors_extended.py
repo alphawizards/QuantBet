@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
-from src.features.four_factors import (
+from src.models.features.four_factors import (
     FourFactors,
     FourFactorsDifferential,
     FourFactorsCalculator,
