@@ -25,7 +25,7 @@ from .metrics import BacktestMetrics, calculate_metrics
 from .simulator import BetSimulator, SessionResult, StakingStrategy, FractionalKellyStake
 from .validator import LeakageValidator, ValidationReport
 
-from src.portfolio.kelly import BetOpportunity
+from src.strategies.kelly import BetOpportunity
 
 
 logger = logging.getLogger(__name__)

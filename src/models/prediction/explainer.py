@@ -64,7 +64,7 @@ class ModelExplainer:
     for XGBoost, LightGBM, and CatBoost models.
     
     Example:
-        >>> from src.model.predictor import NBLPredictor
+        >>> from src.models.prediction.predictor import NBLPredictor
         >>> predictor = NBLPredictor()
         >>> predictor.fit(X_train, y_train)
         >>> 

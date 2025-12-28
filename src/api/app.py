@@ -441,10 +441,10 @@ async def get_today_full_predictions(
     Returns empty list if no games today or odds unavailable.
     """
     try:
-        from ..data.odds_api import OddsAPIClient
-        from ..model.bayesian_elo import BayesianEloRating
-        from ..model.ensemble import EnsemblePredictor, MarketImpliedPredictor
-        from ..model.four_factors_predictor import FourFactorsPredictor
+        from src.collectors.odds_api import OddsAPIClient
+        from src.models.prediction.bayesian_elo import BayesianEloRating
+        from src.models.prediction.ensemble import EnsemblePredictor, MarketImpliedPredictor
+        from src.models.prediction.four_factors_predictor import FourFactorsPredictor
         import pandas as pd
         import numpy as np
         
@@ -823,7 +823,8 @@ async def get_live_odds(
     Requires admin authentication.
     """
     try:
-        from ..data.odds_api import OddsAPIClient
+        from src.collectors.odds_api import OddsAPIClient
+        from src.collectors.odds_api import OddsAPIClient
         
         client = OddsAPIClient()
         
@@ -966,8 +967,8 @@ async def predict_with_four_factors(
     a win probability, calibrated on NBL historical data.
     """
     try:
-        from ..data.scraper import NBLDataScraper
-        from ..features.four_factors import (
+        from src.collectors.scraper import NBLDataScraper
+        from src.models.features.four_factors import (
             RollingFourFactors,
             FourFactorsCalculator,
             PaceCalculator

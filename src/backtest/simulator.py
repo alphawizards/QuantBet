@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from src.portfolio.kelly import (
+from src.strategies.kelly import (
     BetOpportunity, 
     KellyResult, 
     kelly_criterion,

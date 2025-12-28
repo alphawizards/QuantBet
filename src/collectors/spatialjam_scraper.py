@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import List, Optional
 import logging
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ class ShotRecord(BaseModel):
     quarter: int = Field(..., ge=1, le=5)
     game_clock: Optional[str] = None
     
-    @validator('shot_type')
+    @field_validator('shot_type')
+    @classmethod
     def validate_shot_type(cls, v):
         valid_types = {'2pt', '3pt', 'ft'}
         if v.lower() not in valid_types:
@@ -75,7 +76,8 @@ class PlayerBPMRecord(BaseModel):
     bpm: float
     vorp: Optional[float] = None  # Value Over Replacement Player
     
-    @validator('bpm')
+    @field_validator('bpm')
+    @classmethod
     def validate_bpm_range(cls, v):
         if not -15 <= v <= 15:
             logger.warning(f"BPM {v} outside typical range [-15, 15]")

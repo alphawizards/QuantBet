@@ -10,7 +10,7 @@ Tests verify mathematical correctness of:
 
 import pytest
 import numpy as np
-from src.portfolio.kelly import (
+from src.strategies.kelly import (
     kelly_criterion,
     fractional_kelly,
     bounded_kelly,
