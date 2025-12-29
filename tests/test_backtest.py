@@ -426,7 +426,8 @@ class TestIntegration:
                 train_window=1,
                 test_window=1,
                 initial_bankroll=1000,
-                validate_leakage=False
+                validate_leakage=False,
+                min_training_samples=40  # Reduced for test data size (50 per season)
             )
         )
         
