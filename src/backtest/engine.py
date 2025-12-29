@@ -392,26 +392,34 @@ class BacktestEngine:
         Returns:
             List of (BetOpportunity, actual_outcome) tuples
         """
+        # Vectorized edge calculation
+        # Safely calculate implied prob (avoid div/0)
+        odds = predictions['odds']
+        valid_odds = odds > 0
+
+        implied_probs = np.zeros(len(predictions))
+        implied_probs[valid_odds] = 1.0 / odds[valid_odds]
+
+        edges = predictions['predicted_prob'] - implied_probs
+
+        # Filter for profitable opportunities
+        mask = (edges >= min_edge) & valid_odds
+
+        profitable_bets = predictions[mask]
+
+        # Construct BetOpportunity objects
         bets = []
         
-        for _, row in predictions.iterrows():
-            prob = row['predicted_prob']
-            odds = row['odds']
-            actual = row['actual_outcome']
+        # Still need loop for object creation, but iterating over filtered subset
+        # is faster than row-by-row logic + calculation
+        for idx, row in profitable_bets.iterrows():
+            bet = BetOpportunity(
+                prob=row['predicted_prob'],
+                decimal_odds=row['odds'],
+                bet_id=f"{row.get('home_team', 'H')}_vs_{row.get('away_team', 'A')}"
+            )
+            bets.append((bet, bool(row['actual_outcome'])))
             
-            # Calculate implied probability and edge
-            implied_prob = 1 / odds if odds > 0 else 0
-            edge = prob - implied_prob
-            
-            # Only bet if edge exceeds threshold
-            if edge >= min_edge:
-                bet = BetOpportunity(
-                    prob=prob,
-                    decimal_odds=odds,
-                    bet_id=f"{row.get('home_team', 'H')}_vs_{row.get('away_team', 'A')}"
-                )
-                bets.append((bet, bool(actual)))
-        
         return bets
     
     def _create_equity_curve(
