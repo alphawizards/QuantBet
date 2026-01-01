@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -21,18 +19,20 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # FastAPI Backend
   api:
     build: .
     container_name: quantbet_api
     environment:
-      DATABASE_URL: postgresql://quantbet:quantbet_secret@postgres:5432/quantbet
+      # Use environment variable for database URL (defined in .env)
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PYTHONUNBUFFERED: 1
       # The Odds API - get your key at https://the-odds-api.com
       ODDS_API_KEY: ${ODDS_API_KEY:-your_odds_api_key_here}
       # Admin authentication for protected endpoints
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASS: ${ADMIN_PASS:-quantbet_admin}
+      # API Key (optional - if not set, auth is disabled for development)
+      QUANTBET_API_KEY: ${QUANTBET_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -41,6 +41,12 @@ services:
     volumes:
       - ./data:/app/data
     command: [ "uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000" ]
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
   # React Dashboard
@@ -53,12 +59,11 @@ services:
       - api
     restart: unless-stopped
 
-  # Data Loader (run on-demand)
   loader:
     build: .
     container_name: quantbet_loader
     environment:
-      DATABASE_URL: postgresql://quantbet:quantbet_secret@postgres:5432/quantbet
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PYTHONUNBUFFERED: 1
     depends_on:
       postgres:

@@ -194,3 +194,29 @@ export interface StrategyComparisonData {
     modelId: string;
     strategies: StrategyEquity[];
 }
+
+// ============================================================================
+// Upcoming Games
+// ============================================================================
+
+export interface UpcomingGame {
+    event_id: string;
+    home_team: string;
+    away_team: string;
+    commence_time: string;
+    predicted_home_prob: number;
+    predicted_home_prob_lower: number;
+    predicted_home_prob_upper: number;
+    uncertainty: number;
+    home_odds: number;
+    away_odds: number;
+    best_bookmaker: string;
+    home_edge: number;
+    away_edge: number;
+    recommendation: 'BET_HOME' | 'BET_AWAY' | 'SKIP';
+    kelly_fraction: number;
+    recommended_stake_pct: number;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+    top_factors: string[];
+}
+

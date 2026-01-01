@@ -144,10 +144,47 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
     return credentials.username
 
 
+app = FastAPI(
+    title="QuantBet NBL API",
+    description="NBL/WNBL sports betting predictions powered by ML",
+    version="1.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    default_response_class=ORJSONResponse
+)
+
+# Add CORS middleware
+# HARDCODED for debugging - will read from .env later
+# allowed_origins = [
+#     "http://localhost:3000",
+#     "http://localhost:3001",
+#     "http://localhost:5173",
+#     "http://127.0.0.1:3000",
+#     "http://127.0.0.1:3001",
+# ]
+
+# print(f"🔧 CORS DEBUG: Configured origins: {allowed_origins}")
+# logger.info(f"CORS Origins configured: {allowed_origins}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # TODO: Restrict in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add analytics endpoints
+from src.api.endpoints import analytics
+app.include_router(analytics.router)
+
+# Add rate limit handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ============================================================================
-# API Models
+# Pydantic Models (Request/Response)
 # ============================================================================
 
 class GamePrediction(BaseModel):
@@ -321,12 +358,23 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS middleware - configure for production
-allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+# HARDCODED for debugging - will read from .env later
+allowed_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+]
+
+print(f"🔧 CORS DEBUG: Configured origins: {allowed_origins}")
+logger.info(f"CORS Origins configured: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -445,7 +493,7 @@ async def get_today_full_predictions(
         from src.collectors.odds_api import OddsAPIClient
         from src.models.prediction.bayesian_elo import BayesianEloRating
         from src.models.prediction.ensemble import EnsemblePredictor, MarketImpliedPredictor
-        from src.models.prediction.four_factors_predictor import FourFactorsPredictor
+        # Note: FourFactorsPredictor import removed - module doesn't exist and wasn't used
         import pandas as pd
         import numpy as np
         
@@ -598,6 +646,487 @@ async def get_today_full_predictions(
     except Exception as e:
         logger.error(f"Failed to generate predictions: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate predictions")
+
+
+@app.get("/games/upcoming", response_model=List[TodaysPrediction], tags=["Games"])
+@limiter.limit("30/minute")
+async def get_upcoming_games(
+    request: Request,
+    days: int = Query(7, ge=1, le=14, description="Number of days to look ahead"),
+    sport: str = Query("nbl", pattern="^(nbl|wnbl)$", description="Sport: 'nbl' or 'wnbl'"),
+    bankroll: float = Query(1000.0, gt=0, le=10000000, description="Your bankroll for stake calculations"),
+    kelly_fraction: float = Query(0.25, gt=0, le=1.0, description="Kelly fraction (0.25 = quarter Kelly)"),
+    _api_key: Optional[str] = Depends(verify_api_key)
+):
+    """
+    Get upcoming NBL games for the next N days with predictions.
+    
+    This endpoint combines:
+    - NBL schedule data (scraped from NBL.com.au)
+    - Live odds from Australian bookmakers (when available)
+    - Ensemble predictions (Bayesian ELO + Market + Prior)
+    - Kelly criterion stake recommendations
+    
+    Returns games scheduled in the next N days (1-14) sorted by date.
+    
+    Note: This uses web scraping for schedule data. For production use,
+    consider caching results or using an official API if available.
+    """
+    try:
+        from src.collectors.nbl_schedule_scraper import NBLScheduleScraper
+        from src.collectors.odds_api import OddsAPIClient
+        from src.models.prediction.bayesian_elo import BayesianEloRating
+        import numpy as np
+        
+        # Initialize scrapers and models
+        schedule_scraper = NBLScheduleScraper()
+        odds_client = OddsAPIClient()
+        elo = BayesianEloRating()
+        
+        # Get upcoming games from NBL schedule
+        scheduled_games = schedule_scraper.get_upcoming_games(days=days)
+        
+        if not scheduled_games:
+            logger.info(f"No games found in next {days} days")
+            return []
+        
+        # Get live odds for matching games
+        if sport.lower() == "wnbl":
+            live_odds_games = odds_client.get_wnbl_odds()
+        else:
+            live_odds_games = odds_client.get_nbl_odds()
+        
+        # Create lookup for odds by team names
+        odds_lookup = {}
+        for odds_game in live_odds_games:
+            key = f"{odds_game.home_team}_{odds_game.away_team}".lower()
+            odds_lookup[key] = odds_game
+        
+        predictions = []
+        
+        for sched_game in scheduled_games:
+            # Try to match with live odds
+            home_code = schedule_scraper.get_team_code(sched_game.home_team)
+            away_code = schedule_scraper.get_team_code(sched_game.away_team)
+            
+            # Look for matching odds game
+            odds_key = f"{sched_game.home_team}_{sched_game.away_team}".lower()
+            odds_game = odds_lookup.get(odds_key)
+            
+            # If no exact match, try with team codes
+            if not odds_game:
+                for odds_g in live_odds_games:
+                    if (home_code.lower() in odds_g.home_team.lower() and 
+                        away_code.lower() in odds_g.away_team.lower()):
+                        odds_game = odds_g
+                        break
+            
+            # Use odds if available, otherwise use default values
+            if odds_game:
+                home_odds = odds_game.best_home_odds
+                away_odds = odds_game.best_away_odds
+                best_bookmaker = odds_game.best_home_bookmaker
+                home_implied = 1 / home_odds if home_odds > 0 else 0.5
+                away_implied = 1 / away_odds if away_odds > 0 else 0.5
+                event_id = odds_game.event_id
+                commence_time = odds_game.commence_time.isoformat()
+            else:
+                # No odds available - use fair odds based on 50/50
+                home_odds = 2.0
+                away_odds = 2.0
+                best_bookmaker = "N/A"
+                home_implied = 0.5
+                away_implied = 0.5
+                event_id = sched_game.game_id
+                
+                # Use scheduled datetime if available
+                if sched_game.datetime_obj:
+                    commence_time = sched_game.datetime_obj.isoformat()
+                else:
+                    commence_time = f"{sched_game.date_str} {sched_game.time_str}"
+            
+            # Get Bayesian Elo prediction with uncertainty
+            try:
+                prob, uncertainty = elo.predict_proba(home_code, away_code)
+                pred_details = elo.predict_with_confidence(home_code, away_code)
+            except Exception as e:
+                logger.warning(f"ELO prediction failed for {home_code} vs {away_code}: {e}")
+                # Default to home court advantage
+                prob = 0.55
+                uncertainty = 0.15
+                pred_details = {
+                    'home_rating_mean': 1500,
+                    'away_rating_mean': 1500,
+                    'ci_05': 0.35,
+                    'ci_95': 0.75
+                }
+            
+            # Calculate market implied probability
+            total_implied = home_implied + away_implied
+            market_prob = home_implied / total_implied if total_implied > 0 else 0.5
+            
+            # Ensemble: combine ELO and Market with fixed weights
+            ensemble_weights = {
+                'bayesian_elo': 0.6,   # Primary model
+                'market': 0.25,        # Market wisdom
+                'prior': 0.15          # Home court prior (~55%)
+            }
+            
+            ensemble_prob = (
+                ensemble_weights['bayesian_elo'] * prob +
+                ensemble_weights['market'] * market_prob +
+                ensemble_weights['prior'] * 0.55  # Home court advantage prior
+            )
+            
+            # Clamp probability to valid range
+            ensemble_prob = max(0.05, min(0.95, ensemble_prob))
+            
+            # Calculate edges using ensemble probability
+            home_edge = ensemble_prob - home_implied
+            away_edge = (1 - ensemble_prob) - away_implied
+            
+            # Determine recommendation
+            min_edge = 0.03  # 3% minimum edge to bet
+            
+            if home_edge > away_edge and home_edge > min_edge:
+                recommendation = "BET_HOME"
+                best_edge = home_edge
+                odds_to_use = home_odds
+                prob_to_use = ensemble_prob
+            elif away_edge > home_edge and away_edge > min_edge:
+                recommendation = "BET_AWAY"
+                best_edge = away_edge
+                odds_to_use = away_odds
+                prob_to_use = 1 - ensemble_prob
+            else:
+                recommendation = "SKIP"
+                best_edge = max(home_edge, away_edge)
+                odds_to_use = home_odds
+                prob_to_use = ensemble_prob
+            
+            # Calculate Kelly stake
+            if recommendation != "SKIP" and best_edge > 0:
+                kelly = (prob_to_use * odds_to_use - 1) / (odds_to_use - 1)
+                kelly = max(0, kelly * kelly_fraction)
+            else:
+                kelly = 0
+            
+            # Determine confidence level based on model agreement
+            model_std = abs(prob - market_prob)  # Disagreement between models
+            combined_uncertainty = (uncertainty + model_std) / 2
+            
+            if combined_uncertainty < 0.05:
+                confidence = "HIGH"
+            elif combined_uncertainty < 0.10:
+                confidence = "MEDIUM"
+            else:
+                confidence = "LOW"
+            
+            # Generate top factors
+            factors = []
+            if pred_details.get('home_rating_mean', 0) > pred_details.get('away_rating_mean', 0) + 50:
+                factors.append(f"{home_code} rated {int(pred_details['home_rating_mean'] - pred_details['away_rating_mean'])} ELO higher")
+            if abs(prob - market_prob) > 0.08:
+                if prob > market_prob:
+                    factors.append(f"Model sees {(prob - market_prob):.1%} more value on {home_code}")
+                else:
+                    factors.append(f"Model sees {(market_prob - prob):.1%} more value on {away_code}")
+            if best_edge > 0.05:
+                factors.append(f"Strong edge of {best_edge:.1%} vs market")
+            if combined_uncertainty < 0.08:
+                factors.append("High model agreement")
+            if not factors:
+                factors.append("No strong factors detected")
+            
+            predictions.append(TodaysPrediction(
+                event_id=event_id,
+                home_team=sched_game.home_team,
+                away_team=sched_game.away_team,
+                commence_time=commence_time,
+                predicted_home_prob=round(ensemble_prob, 4),
+                predicted_home_prob_lower=round(pred_details.get('ci_05', ensemble_prob - 0.15), 4),
+                predicted_home_prob_upper=round(pred_details.get('ci_95', ensemble_prob + 0.15), 4),
+                uncertainty=round(combined_uncertainty, 4),
+                home_odds=home_odds,
+                away_odds=away_odds,
+                best_bookmaker=best_bookmaker,
+                home_edge=round(home_edge, 4),
+                away_edge=round(away_edge, 4),
+                recommendation=recommendation,
+                kelly_fraction=round(kelly, 4),
+                recommended_stake_pct=round(kelly * 100, 2),
+                confidence=confidence,
+                top_factors=factors[:3]
+            ))
+        
+        logger.info(f"Generated predictions for {len(predictions)} upcoming games in next {days} days")
+        return predictions
+        
+    except Exception as e:
+        logger.error(f"Failed to generate upcoming games predictions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate predictions: {str(e)}")
+
+
+# ============================================================================
+# Multi-Model Predictions Endpoint
+# ============================================================================
+
+class ModelPrediction(BaseModel):
+    """Prediction from a single model."""
+    model_name: str
+    predicted_home_prob: float
+    recommended_bet: str  # "BET_HOME", "BET_AWAY", "SKIP"
+    kelly_stake_pct: float
+    edge: float
+    confidence: str  # "HIGH", "MEDIUM", "LOW"
+
+
+class MultiModelGame(BaseModel):
+    """Game with predictions from multiple models."""
+    event_id: str
+    home_team: str
+    away_team: str
+    commence_time: str
+    home_odds: float
+    away_odds: float
+    best_bookmaker: str
+    model_predictions: List[ModelPrediction]
+
+
+@app.get("/games/multi-model-predictions", response_model=List[MultiModelGame], tags=["Games"])
+@limiter.limit("20/minute")
+async def get_multi_model_predictions(
+    request: Request,
+    days: int = Query(7, ge=1, le=14, description="Number of days to look ahead"),
+    bankroll: float = Query(1000.0, gt=0, le=10000000, description="Bankroll for stake calculations"),
+    kelly_fraction: float = Query(0.25, gt=0, le=1.0, description="Kelly fraction"),
+    _api_key: Optional[str] = Depends(verify_api_key)
+):
+    """
+    Get predictions from multiple models for upcoming games.
+    
+    Returns predictions from:
+    - Bayesian ELO: Probabilistic rating with uncertainty
+    - Market Implied: Wisdom of the crowd from bookmaker odds
+    - Ensemble: Combined prediction from multiple models
+    - Classic ELO: Traditional rating system
+    
+    Each model provides:
+    - Win probability
+    - Betting recommendation
+    - Kelly stake size
+    - Edge vs market
+    - Confidence level
+    """
+    try:
+        from src.collectors.odds_api import OddsAPIClient
+        from src.models.prediction.bayesian_elo import BayesianEloRating
+        from src.models.prediction.elo import EloRating
+        import numpy as np
+        
+        # Initialize clients
+        odds_client = OddsAPIClient()
+        bayesian_elo = BayesianEloRating()
+        classic_elo = EloRating()
+        
+        # Get live odds
+        games = odds_client.get_nbl_odds()
+        
+        if not games:
+            return []
+        
+        # Filter to games within time window
+        from datetime import datetime, timedelta
+        cutoff = datetime.now() + timedelta(days=days)
+        filtered_games = [
+            g for g in games
+            if datetime.fromisoformat(g.commence_time.replace('Z', '+00:00')) < cutoff
+        ]
+        
+        multi_model_predictions = []
+        
+        for game in filtered_games:
+            # Get team codes (simplified - use first 3 chars)
+            home_code = game.home_team.split()[0][:3].upper()
+            away_code = game.away_team.split()[0][:3].upper()
+            
+            # Market implied probabilities
+            home_implied = 1 / game.best_home_odds if game.best_home_odds > 0 else 0.5
+            away_implied = 1 / game.best_away_odds if game.best_away_odds > 0 else 0.5
+            total_implied = home_implied + away_implied
+            market_prob = home_implied / total_implied if total_implied > 0 else 0.5
+            
+            model_predictions = []
+            
+            # 1. Bayesian ELO Model
+            try:
+                prob, uncertainty = bayesian_elo.predict_proba(home_code, away_code)
+                home_edge = prob - home_implied
+                away_edge = (1 - prob) - away_implied
+                best_edge = max(home_edge, away_edge)
+                
+                if home_edge > away_edge and home_edge > 0.03:
+                    recommendation = "BET_HOME"
+                    kelly = (prob * game.best_home_odds - 1) / (game.best_home_odds - 1)
+                    kelly = max(0, kelly * kelly_fraction)
+                elif away_edge > home_edge and away_edge > 0.03:
+                    recommendation = "BET_AWAY"
+                    kelly = ((1 - prob) * game.best_away_odds - 1) / (game.best_away_odds - 1)
+                    kelly = max(0, kelly * kelly_fraction)
+                else:
+                    recommendation = "SKIP"
+                    kelly = 0
+                
+                confidence = "HIGH" if uncertainty < 0.05 else "MEDIUM" if uncertainty < 0.10 else "LOW"
+                
+                model_predictions.append(ModelPrediction(
+                    model_name="Bayesian ELO",
+                    predicted_home_prob=round(prob, 4),
+                    recommended_bet=recommendation,
+                    kelly_stake_pct=round(kelly * 100, 2),
+                    edge=round(best_edge, 4),
+                    confidence=confidence
+                ))
+            except Exception as e:
+                logger.warning(f"Bayesian ELO failed for {home_code} vs {away_code}: {e}")
+            
+            # 2. Market Implied Model
+            market_edge = 0  # Market has no edge against itself
+            model_predictions.append(ModelPrediction(
+                model_name="Market Implied",
+                predicted_home_prob=round(market_prob, 4),
+                recommended_bet="SKIP",  # Market never has edge
+                kelly_stake_pct=0.0,
+                edge=0.0,
+                confidence="HIGH"
+            ))
+            
+            # 3. Ensemble Model (60% Bayesian ELO + 25% Market + 15% Prior)
+            try:
+                if model_predictions:  # If we have Bayesian ELO
+                    bayesian_prob = model_predictions[0].predicted_home_prob
+                    ensemble_prob = (
+                        0.6 * bayesian_prob +
+                        0.25 * market_prob +
+                        0.15 * 0.55  # Home court prior
+                    )
+                    ensemble_prob = max(0.05, min(0.95, ensemble_prob))
+                    
+                    home_edge_ens = ensemble_prob - home_implied
+                    away_edge_ens = (1 - ensemble_prob) - away_implied
+                    best_edge_ens = max(home_edge_ens, away_edge_ens)
+                    
+                    if home_edge_ens > away_edge_ens and home_edge_ens > 0.03:
+                        recommendation_ens = "BET_HOME"
+                        kelly_ens = (ensemble_prob * game.best_home_odds - 1) / (game.best_home_odds - 1)
+                        kelly_ens = max(0, kelly_ens * kelly_fraction)
+                    elif away_edge_ens > home_edge_ens and away_edge_ens > 0.03:
+                        recommendation_ens = "BET_AWAY"
+                        kelly_ens = ((1 - ensemble_prob) * game.best_away_odds - 1) / (game.best_away_odds - 1)
+                        kelly_ens = max(0, kelly_ens * kelly_fraction)
+                    else:
+                        recommendation_ens = "SKIP"
+                        kelly_ens = 0
+                    
+                    # Confidence based on model agreement
+                    model_std = abs(bayesian_prob - market_prob)
+                    confidence_ens = "HIGH" if model_std < 0.05 else "MEDIUM" if model_std < 0.10 else "LOW"
+                    
+                    model_predictions.append(ModelPrediction(
+                        model_name="Ensemble",
+                        predicted_home_prob=round(ensemble_prob, 4),
+                        recommended_bet=recommendation_ens,
+                        kelly_stake_pct=round(kelly_ens * 100, 2),
+                        edge=round(best_edge_ens, 4),
+                        confidence=confidence_ens
+                    ))
+            except Exception as e:
+                logger.warning(f"Ensemble failed for {home_code} vs {away_code}: {e}")
+            
+            # 4. Classic ELO Model
+            try:
+                classic_prob = classic_elo.predict_game(home_code, away_code)
+                home_edge_classic = classic_prob - home_implied
+                away_edge_classic = (1 - classic_prob) - away_implied
+                best_edge_classic = max(home_edge_classic, away_edge_classic)
+                
+                if home_edge_classic > away_edge_classic and home_edge_classic > 0.03:
+                    recommendation_classic = "BET_HOME"
+                    kelly_classic = (classic_prob * game.best_home_odds - 1) / (game.best_home_odds - 1)
+                    kelly_classic = max(0, kelly_classic * kelly_fraction)
+                elif away_edge_classic > home_edge_classic and away_edge_classic > 0.03:
+                    recommendation_classic = "BET_AWAY"
+                    kelly_classic = ((1 - classic_prob) * game.best_away_odds - 1) / (game.best_away_odds - 1)
+                    kelly_classic = max(0, kelly_classic * kelly_fraction)
+                else:
+                    recommendation_classic = "SKIP"
+                    kelly_classic = 0
+                
+                model_predictions.append(ModelPrediction(
+                    model_name="ELO",
+                    predicted_home_prob=round(classic_prob, 4),
+                    recommended_bet=recommendation_classic,
+                    kelly_stake_pct=round(kelly_classic * 100, 2),
+                    edge=round(best_edge_classic, 4),
+                    confidence="MEDIUM"
+                ))
+            except Exception as e:
+                logger.warning(f"Classic ELO failed for {home_code} vs {away_code}: {e}")
+            
+            # LOG PREDICTIONS TO PRODUCTION LOGGER
+            try:
+                from src.monitoring.prediction_logger import get_production_logger, create_prediction_log
+                
+                prod_logger = get_production_logger()
+                game_id = f"NBL_{datetime.now().strftime('%Y-%m-%d')}_{home_code}_{away_code}"
+                
+                # Log the best prediction (typically Bayesian ELO if available)
+                if model_predictions:
+                    best_pred = model_predictions[0]  # Bayesian ELO
+                    
+                    pred_log = create_prediction_log(
+                        game_id=game_id,
+                        home_team=game.home_team,
+                        away_team=game.away_team,
+                        game_datetime=game.commence_time,
+                        model_name=best_pred.model_name,
+                        predicted_home_prob=best_pred.predicted_home_prob,
+                        home_odds=game.best_home_odds,
+                        away_odds=game.best_away_odds,
+                        bookmaker=game.bookmakers[0] if game.bookmakers else "Unknown",
+                        recommended_bet=best_pred.recommended_bet,
+                        kelly_stake_pct=best_pred.kelly_stake_pct,
+                        edge=best_pred.edge,
+                        uncertainty=0.05 if best_pred.confidence == "HIGH" else 0.10
+                    )
+                    
+                    prod_logger.log_prediction(pred_log)
+                    logger.info(f"Logged prediction for {game_id}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to log prediction: {e}")
+                # Don't fail the request if logging fails
+            
+            # Create multi-model game response
+            multi_model_predictions.append(MultiModelGame(
+                event_id=game.event_id,
+                home_team=game.home_team,
+                away_team=game.away_team,
+                commence_time=game.commence_time,
+                home_odds=game.best_home_odds,
+                away_odds=game.best_away_odds,
+                best_bookmaker=game.best_home_bookmaker,
+                model_predictions=model_predictions
+            ))
+        
+        logger.info(f"Generated multi-model predictions for {len(multi_model_predictions)} games")
+        return multi_model_predictions
+        
+    except Exception as e:
+        logger.error(f"Failed to generate multi-model predictions: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate predictions: {str(e)}")
+
+
 
 
 @app.get("/predictions/{game_id}", response_model=GamePrediction, tags=["Predictions"])

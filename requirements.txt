@@ -27,6 +27,8 @@ psycopg2-binary>=2.9.0
 # Data Scraping & Integration
 pyreadr>=0.5.0           # Read R RDS files
 requests>=2.31.0         # HTTP requests
+beautifulsoup4>=4.12.0   # HTML parsing for scraping
+playwright>=1.40.0       # Browser automation for Tableau scraping
 tenacity>=8.2.0          # Retry logic
 fuzzywuzzy>=0.18.0       # Fuzzy string matching
 python-Levenshtein>=0.21.0  # Fast fuzzywuzzy backend

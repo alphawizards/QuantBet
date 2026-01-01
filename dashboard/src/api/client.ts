@@ -9,6 +9,7 @@ import type {
     DashboardSummary,
     StrategyEquity,
     StrategyComparisonData,
+    UpcomingGame,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -346,4 +347,28 @@ export async function getLatestBacktest(): Promise<BacktestResult> {
     return getBacktestForModel('kelly');
 }
 
+// Upcoming games with predictions
+export async function getUpcomingGames(
+    days: number = 7,
+    bankroll: number = 1000,
+    sport: string = 'nbl'
+): Promise<UpcomingGame[]> {
+    try {
+        const response = await fetch(
+            `http://localhost:8000/games/upcoming?days=${days}&bankroll=${bankroll}&sport=${sport}`
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Failed to fetch upcoming games:', error);
+        throw error;
+    }
+}
+
 export default api;
+

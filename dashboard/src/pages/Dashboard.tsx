@@ -15,6 +15,8 @@ import { ModelSelector } from '../components/ModelSelector';
 import { StrategyComparison } from '../components/StrategyComparison';
 import { OddsCalculator } from '../components/OddsCalculator';
 import TodaysPicks from '../components/TodaysPicks';
+import { UpcomingGames } from '../components/UpcomingGames';
+import { WeeklyPredictionsTable } from '../components/WeeklyPredictionsTable';
 import {
     getBacktestForModel,
     getCalibrationData,
@@ -108,6 +110,12 @@ export function Dashboard() {
 
             {/* TODAY'S PICKS - Primary component for daily use */}
             <TodaysPicks bankroll={1000} />
+
+            {/* UPCOMING GAMES - Weekly schedule with predictions */}
+            <UpcomingGames days={7} bankroll={1000} />
+
+            {/* WEEKLY MULTI-MODEL PREDICTIONS - Comprehensive table */}
+            <WeeklyPredictionsTable bankroll={1000} startDate="2026-01-05" />
 
             {/* Current Model Banner */}
             {currentModelInfo && (
