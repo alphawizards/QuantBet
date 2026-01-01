@@ -1,0 +1,82 @@
+{
+    "predictions": [
+        {
+            "prediction_id": "cal_001",
+            "game_id": "test_game_50_001",
+            "predicted_prob": 0.50,
+            "actual_outcome": 1,
+            "bin": "0.45-0.55"
+        },
+        {
+            "prediction_id": "cal_002",
+            "game_id": "test_game_50_002",
+            "predicted_prob": 0.52,
+            "actual_outcome": 0,
+            "bin": "0.45-0.55"
+        },
+        {
+            "prediction_id": "cal_003",
+            "game_id": "test_game_60_001",
+            "predicted_prob": 0.60,
+            "actual_outcome": 1,
+            "bin": "0.55-0.65"
+        },
+        {
+            "prediction_id": "cal_004",
+            "game_id": "test_game_60_002",
+            "predicted_prob": 0.62,
+            "actual_outcome": 1,
+            "bin": "0.55-0.65"
+        },
+        {
+            "prediction_id": "cal_005",
+            "game_id": "test_game_60_003",
+            "predicted_prob": 0.58,
+            "actual_outcome": 0,
+            "bin": "0.55-0.65"
+        },
+        {
+            "prediction_id": "cal_006",
+            "game_id": "test_game_70_001",
+            "predicted_prob": 0.70,
+            "actual_outcome": 1,
+            "bin": "0.65-0.75"
+        },
+        {
+            "prediction_id": "cal_007",
+            "game_id": "test_game_70_002",
+            "predicted_prob": 0.72,
+            "actual_outcome": 1,
+            "bin": "0.65-0.75"
+        },
+        {
+            "prediction_id": "cal_008",
+            "game_id": "test_game_70_003",
+            "predicted_prob": 0.68,
+            "actual_outcome": 1,
+            "bin": "0.65-0.75"
+        }
+    ],
+    "metadata": {
+        "description": "Perfectly calibrated test data where predicted probabilities match observed frequencies",
+        "calibration_note": "50% predictions should win 50% of time, 60% should win 60%, etc.",
+        "expected_brier_score": 0.20,
+        "bins": {
+            "0.45-0.55": {
+                "count": 2,
+                "predicted_avg": 0.51,
+                "observed_freq": 0.50
+            },
+            "0.55-0.65": {
+                "count": 3,
+                "predicted_avg": 0.60,
+                "observed_freq": 0.67
+            },
+            "0.65-0.75": {
+                "count": 3,
+                "predicted_avg": 0.70,
+                "observed_freq": 1.00
+            }
+        }
+    }
+}

@@ -1,0 +1,70 @@
+{
+    "games": [
+        {
+            "game_id": "nbl_2024_001",
+            "home_team": "Melbourne United",
+            "away_team": "Sydney Kings",
+            "game_date": "2024-01-15",
+            "home_score": 95,
+            "away_score": 88,
+            "outcome": "HOME_WIN",
+            "home_odds": 1.85,
+            "away_odds": 2.05
+        },
+        {
+            "game_id": "nbl_2024_002",
+            "home_team": "Perth Wildcats",
+            "away_team": "Brisbane Bullets",
+            "game_date": "2024-01-16",
+            "home_score": 102,
+            "away_score": 98,
+            "outcome": "HOME_WIN",
+            "home_odds": 1.75,
+            "away_odds": 2.15
+        },
+        {
+            "game_id": "nbl_2024_003",
+            "home_team": "Adelaide 36ers",
+            "away_team": "Tasmania JackJumpers",
+            "game_date": "2024-01-17",
+            "home_score": 85,
+            "away_score": 92,
+            "outcome": "AWAY_WIN",
+            "home_odds": 2.10,
+            "away_odds": 1.80
+        },
+        {
+            "game_id": "nbl_2024_004",
+            "home_team": "Illawarra Hawks",
+            "away_team": "New Zealand Breakers",
+            "game_date": "2024-01-18",
+            "home_score": 78,
+            "away_score": 81,
+            "outcome": "AWAY_WIN",
+            "home_odds": 1.95,
+            "away_odds": 1.95
+        },
+        {
+            "game_id": "nbl_2024_005",
+            "home_team": "Cairns Taipans",
+            "away_team": "South East Melbourne Phoenix",
+            "game_date": "2024-01-19",
+            "home_score": 110,
+            "away_score": 89,
+            "outcome": "HOME_WIN",
+            "home_odds": 1.65,
+            "away_odds": 2.35
+        }
+    ],
+    "metadata": {
+        "description": "Sample NBL games from 2024 season for testing",
+        "total_games": 5,
+        "home_wins": 3,
+        "away_wins": 2,
+        "edge_cases": {
+            "close_game": "nbl_2024_004",
+            "blowout": "nbl_2024_005",
+            "expected_outcome": "nbl_2024_001"
+        }
+    }
+}

@@ -1,0 +1,97 @@
+{
+    "bets": [
+        {
+            "bet_id": "bet_001",
+            "user_id": "test_user_1",
+            "game_id": "nbl_2024_001",
+            "home_team": "Melbourne United",
+            "away_team": "Sydney Kings",
+            "recommended_bet": "HOME",
+            "predicted_prob": 0.58,
+            "recommended_odds": 1.85,
+            "recommended_stake": 26.00,
+            "actual_stake": 25.00,
+            "actual_outcome": "HOME_WIN",
+            "profit_loss": 21.25,
+            "user_action": "FOLLOWED"
+        },
+        {
+            "bet_id": "bet_002",
+            "user_id": "test_user_1",
+            "game_id": "nbl_2024_002",
+            "home_team": "Perth Wildcats",
+            "away_team": "Brisbane Bullets",
+            "recommended_bet": "HOME",
+            "predicted_prob": 0.62,
+            "recommended_odds": 1.75,
+            "recommended_stake": 30.00,
+            "actual_stake": 30.00,
+            "actual_outcome": "HOME_WIN",
+            "profit_loss": 22.50,
+            "user_action": "FOLLOWED"
+        },
+        {
+            "bet_id": "bet_003",
+            "user_id": "test_user_1",
+            "game_id": "nbl_2024_003",
+            "home_team": "Adelaide 36ers",
+            "away_team": "Tasmania JackJumpers",
+            "recommended_bet": "SKIP",
+            "predicted_prob": 0.45,
+            "recommended_odds": null,
+            "recommended_stake": 0,
+            "actual_stake": 0,
+            "actual_outcome": "AWAY_WIN",
+            "profit_loss": 0,
+            "user_action": "FOLLOWED"
+        },
+        {
+            "bet_id": "bet_004",
+            "user_id": "test_user_1",
+            "game_id": "nbl_2024_004",
+            "home_team": "Illawarra Hawks",
+            "away_team": "New Zealand Breakers",
+            "recommended_bet": "HOME",
+            "predicted_prob": 0.55,
+            "recommended_odds": 1.95,
+            "recommended_stake": 15.00,
+            "actual_stake": 15.00,
+            "actual_outcome": "AWAY_WIN",
+            "profit_loss": -15.00,
+            "user_action": "FOLLOWED"
+        },
+        {
+            "bet_id": "bet_005",
+            "user_id": "test_user_1",
+            "game_id": "nbl_2024_005",
+            "home_team": "Cairns Taipans",
+            "away_team": "South East Melbourne Phoenix",
+            "recommended_bet": "HOME",
+            "predicted_prob": 0.68,
+            "recommended_odds": 1.65,
+            "recommended_stake": 40.00,
+            "actual_stake": 40.00,
+            "actual_outcome": "PENDING",
+            "profit_loss": null,
+            "user_action": "FOLLOWED"
+        }
+    ],
+    "metadata": {
+        "description": "Sample bet tracking data for testing",
+        "total_bets": 5,
+        "completed_bets": 4,
+        "pending_bets": 1,
+        "wins": 2,
+        "losses": 1,
+        "skipped": 1,
+        "total_staked": 110.00,
+        "total_profit": 28.75,
+        "roi": 0.261,
+        "win_rate": 0.667,
+        "expected_stats": {
+            "roi_pct": 26.1,
+            "win_rate_pct": 66.7,
+            "sharpe_ratio": "to_be_calculated"
+        }
+    }
+}
