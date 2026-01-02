@@ -342,43 +342,6 @@ class TodaysPrediction(BaseModel):
     # Top factors (SHAP-based)
     top_factors: List[str]  # e.g. ["Home team on 3-game win streak", "Away team traveled 2000km"]
 
-
-
-app = FastAPI(
-    title="QuantBet NBL API",
-    description="NBL/WNBL sports betting predictions powered by ML",
-    version="1.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    default_response_class=ORJSONResponse
-)
-
-# Add rate limiting
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# CORS middleware - configure for production
-# HARDCODED for debugging - will read from .env later
-allowed_origins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-]
-
-print(f"🔧 CORS DEBUG: Configured origins: {allowed_origins}")
-logger.info(f"CORS Origins configured: {allowed_origins}")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
 # Request timing middleware
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
