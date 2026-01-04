@@ -10,6 +10,9 @@ import type {
     StrategyEquity,
     StrategyComparisonData,
     UpcomingGame,
+    TrackBetRequest,
+    TrackedBet,
+    BetStats,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -366,6 +369,104 @@ export async function getUpcomingGames(
         return data;
     } catch (error) {
         console.error('Failed to fetch upcoming games:', error);
+        throw error;
+    }
+}
+
+// ============================================================================
+// Bet Tracking API Functions
+// ============================================================================
+
+export async function trackBet(bet: TrackBetRequest): Promise<TrackedBet> {
+    try {
+        const response = await fetch('http://localhost:8000/api/bets/track', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(bet),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to track bet');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to track bet:', error);
+        throw error;
+    }
+}
+
+export async function getRecentBets(
+    limit: number = 20,
+    status?: 'PENDING' | 'WON' | 'LOST' | 'VOID'
+): Promise<TrackedBet[]> {
+    try {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (status) {
+            params.append('status', status);
+        }
+
+        const response = await fetch(
+            `http://localhost:8000/api/bets/recent?${params}`
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to fetch recent bets:', error);
+        throw error;
+    }
+}
+
+export async function updateBetResult(
+    betId: string,
+    actualResult: 'HOME' | 'AWAY',
+    status: 'WON' | 'LOST' | 'VOID' = 'WON'
+): Promise<TrackedBet> {
+    try {
+        const response = await fetch(
+            `http://localhost:8000/api/bets/${betId}/result`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    actual_result: actualResult,
+                    status,
+                }),
+            }
+        );
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to update bet result');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to update bet result:', error);
+        throw error;
+    }
+}
+
+export async function getBetStats(): Promise<BetStats> {
+    try {
+        const response = await fetch('http://localhost:8000/api/bets/stats');
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to fetch bet stats:', error);
         throw error;
     }
 }

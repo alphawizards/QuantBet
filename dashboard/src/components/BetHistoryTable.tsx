@@ -17,9 +17,14 @@ export function BetHistoryTable({ bets, limit = 10 }: BetHistoryTableProps) {
     return (
         <div className="bg-[var(--card)] rounded-xl p-6 border border-[var(--border)]">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-[var(--foreground)]">
-                    Recent Bets
-                </h3>
+                <div>
+                    <h3 className="text-lg font-semibold text-[var(--foreground)]">
+                        Backtest Performance
+                    </h3>
+                    <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                        Historical model validation data • 2011-2012 season
+                    </p>
+                </div>
                 <span className="text-sm text-[var(--muted-foreground)]">
                     Showing {displayBets.length} of {bets.length}
                 </span>

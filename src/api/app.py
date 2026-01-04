@@ -178,6 +178,10 @@ app.add_middleware(
 from src.api.endpoints import analytics
 app.include_router(analytics.router)
 
+# Add bet tracking endpoints
+from src.api.endpoints import bet_tracking
+app.include_router(bet_tracking.router)
+
 # Add rate limit handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

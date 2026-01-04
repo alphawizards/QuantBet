@@ -220,3 +220,60 @@ export interface UpcomingGame {
     top_factors: string[];
 }
 
+// ============================================================================
+// Bet Tracking Types
+// ============================================================================
+
+export interface TrackBetRequest {
+    game_id: string;
+    home_team: string;
+    away_team: string;
+    game_date: string;
+    bet_on: 'HOME' | 'AWAY';
+    prediction: number;
+    odds: number;
+    stake: number;
+    edge?: number;
+    model_id?: string;
+    confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+    bookmaker?: string;
+    notes?: string;
+}
+
+export interface TrackedBet {
+    id: number;
+    bet_id: string;
+    user_id: string;
+    game_id: string;
+    home_team: string;
+    away_team: string;
+    game_date: string;
+    bet_on: 'HOME' | 'AWAY';
+    prediction: number;
+    odds: number;
+    stake: number;
+    edge?: number;
+    model_id?: string;
+    confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+    bookmaker?: string;
+    status: 'PENDING' | 'WON' | 'LOST' | 'VOID' | 'CANCELLED';
+    actual_result?: 'HOME' | 'AWAY';
+    profit?: number;
+    settled_at?: string;
+    created_at: string;
+    updated_at: string;
+    notes?: string;
+}
+
+export interface BetStats {
+    total_bets: number;
+    pending_bets: number;
+    won_bets: number;
+    lost_bets: number;
+    win_rate: number;
+    total_staked: number;
+    total_profit: number;
+    roi: number;
+}
+
+

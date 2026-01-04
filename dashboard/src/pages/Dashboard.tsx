@@ -17,6 +17,7 @@ import { OddsCalculator } from '../components/OddsCalculator';
 import TodaysPicks from '../components/TodaysPicks';
 import { UpcomingGames } from '../components/UpcomingGames';
 import { WeeklyPredictionsTable } from '../components/WeeklyPredictionsTable';
+import { TrackedBetsTable } from '../components/TrackedBetsTable';
 import {
     getBacktestForModel,
     getCalibrationData,
@@ -216,9 +217,24 @@ export function Dashboard() {
                 {backtest && <EquityCurve data={backtest.equity} />}
             </div>
 
-            {/* Bet History */}
+            {/* Tracked Bets - Live Performance */}
+            <div className="mb-6">
+                <TrackedBetsTable />
+            </div>
+
+            {/* Pending Bets - Current Opportunities */}
+            <div className="mb-6">
+                <TodaysPicks />
+            </div>
+
+            {/* Bet History - Historical Backtest Data */}
             {backtest && (
-                <BetHistoryTable bets={backtest.bets} limit={15} />
+                <details className="mt-6">
+                    <summary className="cursor-pointer text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mb-4 flex items-center gap-2">
+                        <span>View Historical Backtest Performance ↓</span>
+                    </summary>
+                    <BetHistoryTable bets={backtest.bets} limit={15} />
+                </details>
             )}
 
             {/* Footer */}

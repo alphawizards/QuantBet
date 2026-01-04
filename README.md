@@ -117,11 +117,62 @@ print(result.stake_amounts(bankroll=10000))
 
 ```bash
 # Run all tests
-python -m pytest tests/ -v
+python scripts/run_all_tests.py
+
+# Run specific test suites
+python -m pytest tests/unit/ -v
+python -m pytest tests/integration/ -v
 
 # Run with coverage
 python -m pytest tests/ --cov=src --cov-report=html
+
+# Run E2E tests (requires Playwright)
+cd dashboard
+npx playwright test
 ```
+
+**Current Test Status** (as of 2026-01-04):
+- ✅ Unit Tests: 170 passing
+- 📊 Coverage: 5.1% (186/3636 lines)
+- 🎯 Target Coverage: 80%+
+
+## Bet Tracking
+
+Track your actual placed bets and monitor real-time P/L performance:
+
+```python
+# Track a new bet
+POST /api/bets/track
+{
+    "game_id": "mel_syd_20260104",
+    "home_team": "Melbourne United",
+    "away_team": "Sydney Kings",
+    "game_date": "2026-01-04T19:00:00",
+    "bet_on": "HOME",
+    "prediction": 0.60,
+    "odds": 2.15,
+    "stake": 100.00,
+    "confidence": "HIGH"
+}
+
+# Update bet result
+PUT /api/bets/{bet_id}/result
+{
+    "actual_result": "HOME",
+    "status": "WON"
+}
+
+# Get betting statistics
+GET /api/bets/stats
+# Returns: win_rate, roi, total_profit, total_staked
+```
+
+### Dashboard Features
+- **Pending Bets Table**: View upcoming games with positive edge
+- **Tracked Bets History**: Monitor placed bets with P/L tracking
+- **Betting Statistics**: Win rate, ROI, and profit metrics
+
+
 
 ## Mathematical Foundation
 
