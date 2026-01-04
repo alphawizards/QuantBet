@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { trackBet } from '../api/client';
 
 interface TodayPrediction {
     event_id: string;
@@ -89,6 +90,7 @@ export default function TodaysPicks({ bankroll = 1000 }: TodaysPicksProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const [tracking, setTracking] = useState<string | null>(null); // Track which bet is being tracked
 
     const fetchPredictions = async () => {
         setLoading(true);
@@ -110,6 +112,35 @@ export default function TodaysPicks({ bankroll = 1000 }: TodaysPicksProps) {
             setError(err instanceof Error ? err.message : 'Unknown error');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleTrackBet = async (pred: TodayPrediction) => {
+        setTracking(pred.event_id);
+        try {
+            await trackBet({
+                game_id: pred.event_id,
+                home_team: pred.home_team,
+                away_team: pred.away_team,
+                game_date: pred.commence_time,
+                bet_on: pred.recommendation === 'BET_HOME' ? 'HOME' : 'AWAY',
+                prediction: pred.recommendation === 'BET_HOME'
+                    ? pred.predicted_home_prob
+                    : (1 - pred.predicted_home_prob),
+                odds: pred.recommendation === 'BET_HOME' ? pred.home_odds : pred.away_odds,
+                stake: bankroll * pred.kelly_fraction,
+                edge: pred.recommendation === 'BET_HOME' ? pred.home_edge : pred.away_edge,
+                model_id: 'ensemble',
+                confidence: pred.confidence,
+                bookmaker: pred.best_bookmaker,
+            });
+
+            alert(`✅ Bet tracked! $${(bankroll * pred.kelly_fraction).toFixed(2)} on ${pred.recommendation === 'BET_HOME' ? pred.home_team : pred.away_team}`);
+        } catch (err) {
+            console.error('Failed to track bet:', err);
+            alert('❌ Failed to track bet. Please try again.');
+        } finally {
+            setTracking(null);
         }
     };
 
@@ -233,8 +264,8 @@ export default function TodaysPicks({ bankroll = 1000 }: TodaysPicksProps) {
 
                             {/* Recommendation Box */}
                             <div className={`rounded-lg p-3 ${pred.recommendation !== 'SKIP'
-                                    ? 'bg-green-600/30 border border-green-500'
-                                    : 'bg-gray-700/50 border border-gray-600'
+                                ? 'bg-green-600/30 border border-green-500'
+                                : 'bg-gray-700/50 border border-gray-600'
                                 }`}>
                                 {pred.recommendation === 'SKIP' ? (
                                     <div className="text-center text-gray-400">
@@ -257,6 +288,13 @@ export default function TodaysPicks({ bankroll = 1000 }: TodaysPicksProps) {
                                             <div className="text-gray-400 text-sm">
                                                 {pred.recommended_stake_pct.toFixed(1)}% of bankroll
                                             </div>
+                                            <button
+                                                onClick={() => handleTrackBet(pred)}
+                                                disabled={tracking === pred.event_id}
+                                                className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white text-xs rounded-lg transition-colors flex items-center gap-1"
+                                            >
+                                                📊 {tracking === pred.event_id ? 'Tracking...' : 'Track Bet'}
+                                            </button>
                                         </div>
                                     </div>
                                 )}
