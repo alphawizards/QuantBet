@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 
 from src.backtest.statistics import (
-    test_profitability_wilcoxon,
-    test_profitability_sign,
-    test_runs_randomness,
+    test_profitability_wilcoxon as calc_wilcoxon,
+    test_profitability_sign as calc_sign,
+    test_runs_randomness as calc_runs,
     block_bootstrap_ci,
     bootstrap_roi_ci,
     calculate_required_sample_size,
@@ -26,13 +26,19 @@ from src.backtest.statistics import (
 class TestNonParametricTests:
     """Tests for non-parametric significance tests."""
     
+    @pytest.fixture
+    def returns(self):
+        """Standard returns fixture if needed by tests implicitly."""
+        np.random.seed(42)
+        return pd.Series(np.random.normal(0.05, 0.15, 200))
+
     def test_wilcoxon_profitable_strategy(self):
         """Clearly profitable returns should be significant."""
         np.random.seed(42)
         # Profitable: mean return ~5%
         returns = pd.Series(np.random.normal(0.05, 0.15, 500))
         
-        result = test_profitability_wilcoxon(returns)
+        result = calc_wilcoxon(returns)
         
         assert result.test_name == "Wilcoxon Signed-Rank"
         assert result.p_value < 0.05  # Should be significant
@@ -44,7 +50,7 @@ class TestNonParametricTests:
         np.random.seed(42)
         returns = pd.Series(np.random.normal(0.0, 0.15, 200))
         
-        result = test_profitability_wilcoxon(returns)
+        result = calc_wilcoxon(returns)
         
         # p-value should be high (not significant)
         assert result.p_value > 0.10
@@ -54,7 +60,7 @@ class TestNonParametricTests:
         """Small sample should return inadequate."""
         returns = pd.Series([0.1, 0.2, 0.05])
         
-        result = test_profitability_wilcoxon(returns)
+        result = calc_wilcoxon(returns)
         
         assert result.sample_adequate == False
     
@@ -64,7 +70,7 @@ class TestNonParametricTests:
         # 70% positive returns
         returns = pd.Series([0.1, -0.05, 0.08, 0.12, -0.02, 0.15, 0.03] * 20)
         
-        result = test_profitability_sign(returns)
+        result = calc_sign(returns)
         
         assert result.test_name == "Sign Test"
         assert result.significant_at_05 == True
@@ -74,7 +80,7 @@ class TestNonParametricTests:
         np.random.seed(42)
         returns = pd.Series(np.random.normal(0.02, 0.15, 200))
         
-        result = test_runs_randomness(returns)
+        result = calc_runs(returns)
         
         # Random should NOT be significant (fail to reject H0: random)
         assert result.test_name == "Runs Test (Randomness)"

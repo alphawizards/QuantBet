@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, text, select
+from sqlalchemy.orm import sessionmaker, Session
 from dotenv import load_dotenv
 
+from src.core.database.models import Base, Game, OddsHistory, Team, LeagueType, GameStatus, BetType, BetOutcome
+from src.collectors.integration import TEAM_NAME_MAP
 
 # Load environment variables
 load_dotenv()
@@ -29,6 +31,25 @@ DATABASE_URL = os.getenv(
 def get_engine():
     """Create SQLAlchemy engine."""
     return create_engine(DATABASE_URL)
+
+
+def get_or_create_team(session: Session, team_code: str, team_name: str) -> Team:
+    """Get existing team or create new one."""
+    team = session.scalar(select(Team).where(Team.team_code == team_code))
+    if not team:
+        team = Team(
+            team_code=team_code,
+            team_name=team_name,
+            league=LeagueType.NBL,
+            city="Unknown" # Would need a map for cities
+        )
+        session.add(team)
+        session.flush() # flush to get ID
+    return team
+
+def normalize_team_name(name: str) -> str:
+    """Normalize team name using shared map."""
+    return TEAM_NAME_MAP.get(name, "UNKNOWN")
 
 
 def load_nbl_data(
@@ -70,154 +91,112 @@ def insert_games_and_odds(
     batch_size: int = 100
 ) -> dict:
     """
-    Insert games and odds into PostgreSQL.
+    Insert games and odds into PostgreSQL using SQLAlchemy ORM.
     
-    Uses raw SQL for simplicity with our existing schema.
-    Maps Excel data to games + odds_history tables.
+    Populates the 'games' and 'odds_history' tables.
     
     Returns:
         Dict with counts of inserted records
     """
-    # Create a simple games table if the complex one doesn't work
-    create_simple_tables = """
-    -- Drop and recreate simpler tables for the xlsx data
-    DROP TABLE IF EXISTS nbl_odds CASCADE;
-    DROP TABLE IF EXISTS nbl_games CASCADE;
-    
-    CREATE TABLE IF NOT EXISTS nbl_games (
-        game_id SERIAL PRIMARY KEY,
-        game_date DATE NOT NULL,
-        season VARCHAR(10) NOT NULL,
-        home_team VARCHAR(100) NOT NULL,
-        away_team VARCHAR(100) NOT NULL,
-        home_score INTEGER,
-        away_score INTEGER,
-        is_playoff BOOLEAN DEFAULT FALSE,
-        is_overtime BOOLEAN DEFAULT FALSE,
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    
-    CREATE TABLE IF NOT EXISTS nbl_odds (
-        odds_id SERIAL PRIMARY KEY,
-        game_id INTEGER REFERENCES nbl_games(game_id),
-        
-        -- Moneyline odds
-        home_odds DECIMAL(6,3),
-        away_odds DECIMAL(6,3),
-        home_odds_open DECIMAL(6,3),
-        home_odds_close DECIMAL(6,3),
-        away_odds_open DECIMAL(6,3),
-        away_odds_close DECIMAL(6,3),
-        
-        -- Spread
-        home_line_open DECIMAL(5,2),
-        home_line_close DECIMAL(5,2),
-        home_line_odds_open DECIMAL(6,3),
-        home_line_odds_close DECIMAL(6,3),
-        
-        -- Total
-        total_open DECIMAL(5,1),
-        total_close DECIMAL(5,1),
-        total_over_odds_open DECIMAL(6,3),
-        total_over_odds_close DECIMAL(6,3),
-        total_under_odds_open DECIMAL(6,3),
-        total_under_odds_close DECIMAL(6,3),
-        
-        bookmakers_surveyed INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    
-    CREATE INDEX IF NOT EXISTS idx_nbl_games_date ON nbl_games(game_date);
-    CREATE INDEX IF NOT EXISTS idx_nbl_games_season ON nbl_games(season);
-    CREATE INDEX IF NOT EXISTS idx_nbl_games_teams ON nbl_games(home_team, away_team);
-    """
-    
-    with engine.connect() as conn:
-        conn.execute(text(create_simple_tables))
-        conn.commit()
+    Session = sessionmaker(bind=engine)
+    session = Session()
     
     games_inserted = 0
     odds_inserted = 0
     
-    with engine.connect() as conn:
+    try:
+        # Cache teams to avoid repeated lookups
+        team_cache = {}
+
         for _, row in df.iterrows():
-            # Insert game
-            game_sql = """
-            INSERT INTO nbl_games (game_date, season, home_team, away_team, 
-                                   home_score, away_score, is_playoff, is_overtime, notes)
-            VALUES (:game_date, :season, :home_team, :away_team, 
-                    :home_score, :away_score, :is_playoff, :is_overtime, :notes)
-            RETURNING game_id
-            """
+            # Resolve Teams
+            home_name_raw = row['Home Team']
+            away_name_raw = row['Away Team']
             
-            is_playoff = str(row.get('Play Off Game?', '')).upper() == 'Y'
-            is_overtime = str(row.get('Over Time?', '')).upper() == 'Y'
+            home_code = normalize_team_name(home_name_raw)
+            away_code = normalize_team_name(away_name_raw)
             
-            result = conn.execute(text(game_sql), {
-                'game_date': row['Date'].date(),
-                'season': row['Season'],
-                'home_team': row['Home Team'],
-                'away_team': row['Away Team'],
-                'home_score': int(row['Home Score']) if pd.notna(row['Home Score']) else None,
-                'away_score': int(row['Away Score']) if pd.notna(row['Away Score']) else None,
-                'is_playoff': is_playoff,
-                'is_overtime': is_overtime,
-                'notes': row.get('Notes') if pd.notna(row.get('Notes')) else None,
-            })
+            if home_code == "UNKNOWN" or away_code == "UNKNOWN":
+                print(f"Skipping game due to unknown team: {home_name_raw} vs {away_name_raw}")
+                continue
+
+            if home_code not in team_cache:
+                team_cache[home_code] = get_or_create_team(session, home_code, home_name_raw)
+            if away_code not in team_cache:
+                team_cache[away_code] = get_or_create_team(session, away_code, away_name_raw)
+
+            home_team = team_cache[home_code]
+            away_team = team_cache[away_code]
             
-            game_id = result.fetchone()[0]
-            games_inserted += 1
+            # Create Game
+            game_date = row['Date']
             
-            # Insert odds
-            odds_sql = """
-            INSERT INTO nbl_odds (game_id, home_odds, away_odds,
-                                  home_odds_open, home_odds_close,
-                                  away_odds_open, away_odds_close,
-                                  home_line_open, home_line_close,
-                                  home_line_odds_open, home_line_odds_close,
-                                  total_open, total_close,
-                                  total_over_odds_open, total_over_odds_close,
-                                  total_under_odds_open, total_under_odds_close,
-                                  bookmakers_surveyed)
-            VALUES (:game_id, :home_odds, :away_odds,
-                    :home_odds_open, :home_odds_close,
-                    :away_odds_open, :away_odds_close,
-                    :home_line_open, :home_line_close,
-                    :home_line_odds_open, :home_line_odds_close,
-                    :total_open, :total_close,
-                    :total_over_odds_open, :total_over_odds_close,
-                    :total_under_odds_open, :total_under_odds_close,
-                    :bookmakers_surveyed)
-            """
+            # Check for existing game (simple check by date + teams)
+            existing_game = session.scalar(
+                select(Game).where(
+                    Game.scheduled_datetime == game_date,
+                    Game.home_team_id == home_team.team_id,
+                    Game.away_team_id == away_team.team_id
+                )
+            )
             
-            conn.execute(text(odds_sql), {
-                'game_id': game_id,
-                'home_odds': row.get('Home Odds') if pd.notna(row.get('Home Odds')) else None,
-                'away_odds': row.get('Away Odds') if pd.notna(row.get('Away Odds')) else None,
-                'home_odds_open': row.get('Home Odds Open') if pd.notna(row.get('Home Odds Open')) else None,
-                'home_odds_close': row.get('Home Odds Close') if pd.notna(row.get('Home Odds Close')) else None,
-                'away_odds_open': row.get('Away Odds Open') if pd.notna(row.get('Away Odds Open')) else None,
-                'away_odds_close': row.get('Away Odds Close') if pd.notna(row.get('Away Odds Close')) else None,
-                'home_line_open': row.get('Home Line Open') if pd.notna(row.get('Home Line Open')) else None,
-                'home_line_close': row.get('Home Line Close') if pd.notna(row.get('Home Line Close')) else None,
-                'home_line_odds_open': row.get('Home Line Odds Open') if pd.notna(row.get('Home Line Odds Open')) else None,
-                'home_line_odds_close': row.get('Home Line Odds Close') if pd.notna(row.get('Home Line Odds Close')) else None,
-                'total_open': row.get('Total Score Open') if pd.notna(row.get('Total Score Open')) else None,
-                'total_close': row.get('Total Score Close') if pd.notna(row.get('Total Score Close')) else None,
-                'total_over_odds_open': row.get('Total Score Over Open') if pd.notna(row.get('Total Score Over Open')) else None,
-                'total_over_odds_close': row.get('Total Score Over Close') if pd.notna(row.get('Total Score Over Close')) else None,
-                'total_under_odds_open': row.get('Total Score Under Open') if pd.notna(row.get('Total Score Under Open')) else None,
-                'total_under_odds_close': row.get('Total Score Under Close') if pd.notna(row.get('Total Score Under Close')) else None,
-                'bookmakers_surveyed': int(row.get('Bookmakers Surveyed', 0)) if pd.notna(row.get('Bookmakers Surveyed')) else None,
-            })
-            odds_inserted += 1
+            if existing_game:
+                game = existing_game
+            else:
+                game = Game(
+                    league=LeagueType.NBL,
+                    season=row['Season'],
+                    scheduled_datetime=game_date,
+                    home_team=home_team,
+                    away_team=away_team,
+                    home_score=int(row['Home Score']) if pd.notna(row['Home Score']) else None,
+                    away_score=int(row['Away Score']) if pd.notna(row['Away Score']) else None,
+                    status=GameStatus.COMPLETED if pd.notna(row['Home Score']) else GameStatus.SCHEDULED,
+                    venue_name=home_team.venue_name, # Default to home venue
+                    notes=row.get('Notes') if pd.notna(row.get('Notes')) else None
+                )
+                session.add(game)
+                session.flush() # Get ID
+                games_inserted += 1
+
+            # Create OddsHistory entries
+            # 1. Home/Away Closing Odds
+            if pd.notna(row.get('Home Odds Close')):
+                odds_home = OddsHistory(
+                    game=game,
+                    sportsbook="Consensus",
+                    bet_type=BetType.MONEYLINE,
+                    selection=home_team.team_name,
+                    decimal_odds=row['Home Odds Close'],
+                    is_closing_line=True
+                )
+                session.add(odds_home)
+                odds_inserted += 1
+
+            if pd.notna(row.get('Away Odds Close')):
+                odds_away = OddsHistory(
+                    game=game,
+                    sportsbook="Consensus",
+                    bet_type=BetType.MONEYLINE,
+                    selection=away_team.team_name,
+                    decimal_odds=row['Away Odds Close'],
+                    is_closing_line=True
+                )
+                session.add(odds_away)
+                odds_inserted += 1
             
             if games_inserted % 100 == 0:
-                print(f"Inserted {games_inserted} games...")
-                conn.commit()
+                session.commit()
+                print(f"Processed {games_inserted} games...")
+
+        session.commit()
         
-        conn.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"Error inserting data: {e}")
+        raise
+    finally:
+        session.close()
     
     return {
         'games_inserted': games_inserted,
@@ -266,18 +245,20 @@ def main():
     
     # Show sample query
     print("\nSample data (last 5 games):")
-    with engine.connect() as conn:
-        result = conn.execute(text("""
-            SELECT g.game_date, g.home_team, g.away_team, 
-                   g.home_score, g.away_score,
-                   o.home_odds_close, o.away_odds_close
-            FROM nbl_games g
-            JOIN nbl_odds o ON g.game_id = o.game_id
-            ORDER BY g.game_date DESC
-            LIMIT 5
-        """))
-        for row in result:
-            print(f"  {row}")
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        games = session.scalars(
+            select(Game)
+            .order_by(Game.scheduled_datetime.desc())
+            .limit(5)
+        ).all()
+
+        for g in games:
+            print(f"  {g.scheduled_datetime.date()}: {g.home_team.team_code} vs {g.away_team.team_code} "
+                  f"({g.home_score}-{g.away_score})")
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":

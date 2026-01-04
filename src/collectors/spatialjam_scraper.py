@@ -152,27 +152,62 @@ class SpatialJamScraper:
     def __init__(
         self,
         credentials: Optional[SpatialJamCredentials] = None,
-        cache_dir: Optional[str] = None
+        cache_dir: Optional[str] = None,
+        simulate: bool = False
     ):
         """
         Initialize SpatialJam scraper.
         
         Args:
             credentials: SpatialJam+ API credentials. If None, all data
-                methods will raise SpatialJamSubscriptionRequired.
+                methods will raise SpatialJamSubscriptionRequired unless simulate=True.
             cache_dir: Directory for caching responses.
+            simulate: If True, return synthetic data for testing.
         """
         self.credentials = credentials
         self.cache_dir = cache_dir
+        self.simulate = simulate
         self._authenticated = False
         
         if credentials:
             logger.info("SpatialJam credentials provided (not yet implemented)")
+        if simulate:
+            logger.warning("Running in SIMULATION mode - returning synthetic data")
     
     def _require_subscription(self, feature: str):
-        """Raise exception if subscription not configured."""
-        if not self.credentials:
+        """Raise exception if subscription not configured and not simulating."""
+        if not self.credentials and not self.simulate:
             raise SpatialJamSubscriptionRequired(feature)
+
+    def _generate_mock_shot_data(self, count: int = 100) -> List[ShotRecord]:
+        """Generate synthetic shot data."""
+        import random
+        shots = []
+        teams = ["MEL", "SYD", "PER", "TAS", "NZB", "BRI", "ADL", "SEM", "ILL", "CAI"]
+
+        for i in range(count):
+            x = random.uniform(-240, 240)
+            y = random.uniform(-40, 400)
+            dist = (x**2 + y**2)**0.5
+
+            # Determine shot type based on distance
+            if dist > 230: # ~3pt line
+                shot_type = "3pt"
+            else:
+                shot_type = "2pt"
+
+            shots.append(ShotRecord(
+                match_id=f"sim_match_{i//50}",
+                team_code=random.choice(teams),
+                player_name=f"Player_{i%10}",
+                x=round(x, 1),
+                y=round(y, 1),
+                shot_type=shot_type,
+                made=random.choice([True, False]),
+                quarter=random.randint(1, 4),
+                game_clock="10:00"
+            ))
+        return shots
     
     def get_shot_machine(
         self,
@@ -197,6 +232,9 @@ class SpatialJamScraper:
         """
         self._require_subscription("Shot Machine")
         
+        if self.simulate:
+            return self._generate_mock_shot_data()
+
         # TODO: Implement API call when credentials system ready
         raise NotImplementedError(
             "SpatialJam Shot Machine integration not yet implemented. "
@@ -313,7 +351,8 @@ class SpatialJamScraper:
 
 def create_spatialjam_scraper(
     email: Optional[str] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    simulate: bool = False
 ) -> SpatialJamScraper:
     """
     Create SpatialJam scraper with optional credentials.
@@ -321,12 +360,13 @@ def create_spatialjam_scraper(
     Args:
         email: SpatialJam+ account email
         api_key: SpatialJam+ API key (from subscription page)
+        simulate: Enable mock mode
         
     Returns:
         Configured SpatialJamScraper instance
     """
     if email and api_key:
         creds = SpatialJamCredentials(email=email, api_key=api_key)
-        return SpatialJamScraper(credentials=creds)
+        return SpatialJamScraper(credentials=creds, simulate=simulate)
     
-    return SpatialJamScraper()
+    return SpatialJamScraper(simulate=simulate)

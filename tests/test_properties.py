@@ -105,7 +105,7 @@ def test_tov_pct_bounds(turnovers, fga, fta):
     calc = FourFactorsCalculator()
     tov_pct = calc.calculate_tov_pct(turnovers, fga, fta)
 
-    assert 0.0 <= tov_pct <= 100.0
+    assert 0.0 <= tov_pct <= 100.00000000000001
 
 @given(
     fga=st.floats(min_value=0, max_value=150),

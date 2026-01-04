@@ -498,9 +498,20 @@ class NBLFeatureEngineer:
             last_venue = last_game['away_team']  # Away game location
         
         # Current game venue
-        current_game = schedule[
+        matching_games = schedule[
             schedule['game_date'] == game_date
-        ].iloc[0]
+        ]
+
+        if matching_games.empty:
+            return TravelFatigueResult(
+                score=0.0,
+                distance_km=0.0,
+                route_type="Unknown",
+                back_to_back=False,
+                days_rest=7
+            )
+
+        current_game = matching_games.iloc[0]
         
         if current_game['home_team'] == team_code:
             current_venue = team_code  # Playing at home
